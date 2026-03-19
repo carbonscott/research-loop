@@ -126,13 +126,15 @@ for i in $(seq 1 $K); do
 done
 ```
 
+**Note**: Each worktree duplicates working tree files (the object store is shared via hardlinks). For large repos with K=8+, ensure sufficient disk for K concurrent checkouts.
+
 ### Helper: Batch mode — teardown worktrees (batch mode only)
 
 ```bash
 # After evaluating all experiments in a batch
 for i in $(seq 1 $K); do
   git worktree remove research-loop/worktrees/exp-${BATCH_ID}-${i}
-  git branch -D exp/${BATCH_ID}-${i}  # delete branch (unless it's the winner being merged)
+  git branch -D exp/${BATCH_ID}-${i}  # safe: winner's commits already merged to research branch
 done
 ```
 

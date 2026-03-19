@@ -94,6 +94,8 @@ Look for:
 - Could a deferred keep be combined with the winner? (e.g., winner changed architecture, deferred changed optimizer — try both together)
 - Should any deferred keep be revisited by rebasing on the current HEAD and re-testing?
 
+Surface deferred keep findings in `insights.md` under **Current Strategy** (e.g., "consider combining batch 3 winner with deferred keep #12 which improved optimizer") or **Open Questions** if uncertain.
+
 ### 3. Write insights.md
 
 Overwrite `insights.md` with a fresh summary. **This file must never exceed ~30 lines.** It is the agent's bounded working memory — if it grows unbounded, it defeats the purpose.

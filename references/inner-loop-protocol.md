@@ -141,6 +141,8 @@ Do NOT ask the user "should I continue?" — the loop is autonomous. The only pa
 
 When the protocol specifies batch size K > 1, the inner loop runs K experiments in parallel using git worktrees instead of one at a time. **If K=1, ignore this section entirely — use the sequential cycle above.**
 
+**Baseline first**: Run the baseline as a single sequential experiment before starting batch mode. The baseline establishes the reference metric for keep/discard decisions across all batches.
+
 ### The Batch Cycle
 
 ```
@@ -198,9 +200,9 @@ Each worktree gets an independent copy of the codebase. Changes in one don't aff
 #### 5. Commit in each worktree
 
 ```bash
-cd research-loop/worktrees/exp-${BATCH_ID}-${i}
-git add <modified files>
-git commit -m "exp: batch ${BATCH_ID} hyp ${i} — <description>"
+(cd research-loop/worktrees/exp-${BATCH_ID}-${i} && \
+  git add <modified files> && \
+  git commit -m "exp: batch ${BATCH_ID} hyp ${i} — <description>")
 ```
 
 #### 6. Run in parallel
@@ -210,14 +212,14 @@ Submit all K experiments. The exact method depends on the environment:
 ```bash
 # Slurm
 for i in $(seq 1 $K); do
-  cd research-loop/worktrees/exp-${BATCH_ID}-${i}
-  sbatch --job-name=exp-${BATCH_ID}-${i} run.sh
+  (cd research-loop/worktrees/exp-${BATCH_ID}-${i} && \
+    sbatch --job-name=exp-${BATCH_ID}-${i} run.sh)
 done
 
 # Background processes
 for i in $(seq 1 $K); do
-  cd research-loop/worktrees/exp-${BATCH_ID}-${i}
-  <run command> > run.log 2>&1 &
+  (cd research-loop/worktrees/exp-${BATCH_ID}-${i} && \
+    <run command> > run.log 2>&1) &
 done
 wait
 ```
