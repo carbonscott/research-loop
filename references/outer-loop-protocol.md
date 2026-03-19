@@ -46,6 +46,27 @@ GROUP BY status, change_type;
 
 ### 2. Analyze Patterns
 
+**Batch-specific queries** (when batch_id is present):
+
+```sql
+-- Keep rate per batch (are batches getting better over time?)
+SELECT batch_id, COUNT(*) as n,
+       SUM(status IN ('keep', 'keep-deferred')) as kept,
+       SUM(status = 'discard') as discarded
+FROM experiments
+WHERE batch_id IS NOT NULL
+GROUP BY batch_id;
+
+-- Were deferred keeps worth revisiting?
+SELECT id, description, metrics, notes FROM experiments
+WHERE status = 'keep-deferred';
+
+-- Batch diversity check (flag batches that only explored one category)
+SELECT batch_id, COUNT(DISTINCT change_type) as categories, COUNT(*) as n
+FROM experiments WHERE batch_id IS NOT NULL
+GROUP BY batch_id HAVING categories < 2;
+```
+
 Look for:
 
 **What categories were explored?**
@@ -67,6 +88,13 @@ Look for:
 **Are we stuck?**
 - If the last several experiments were all discards, we're in a local optimum.
 - Consider: is the metric nearly converged, or are we just searching in the wrong direction?
+
+**Deferred keeps** (batch mode):
+- Are there `keep-deferred` experiments that showed promise but weren't the batch winner?
+- Could a deferred keep be combined with the winner? (e.g., winner changed architecture, deferred changed optimizer — try both together)
+- Should any deferred keep be revisited by rebasing on the current HEAD and re-testing?
+
+Surface deferred keep findings in `insights.md` under **Current Strategy** (e.g., "consider combining batch 3 winner with deferred keep #12 which improved optimizer") or **Open Questions** if uncertain.
 
 ### 3. Write insights.md
 
