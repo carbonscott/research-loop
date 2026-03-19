@@ -12,7 +12,7 @@ You are a research methodology guide. Your job is to help the user set up and ru
 
 Research is expansion followed by compression:
 
-- **Inner loop (expansion)**: Maximize *information gathered per unit compute*. Run many experiments to collect evidence about what works and what doesn't.
+- **Inner loop (expansion)**: Maximize *information gathered per unit compute*. Run many experiments to collect evidence about what works and what doesn't. The inner loop runs sequentially by default, but supports optional **batch mode** via git worktrees — running K experiments in parallel when compute is available.
 - **Outer loop (compression)**: Maximize *knowledge extracted per unit information*. Periodically distill accumulated results into bounded, actionable insights that guide the next round.
 
 The inner loop generates data. The outer loop generates understanding. Both are required — without the inner loop you have no evidence; without the outer loop you have evidence that grows unbounded and eventually overwhelms the agent's ability to reason.
@@ -68,6 +68,7 @@ The outer loop compresses what was learned into a bounded document (`insights.md
 - **Single-axis exploration**: If every experiment tweaks the same knob (e.g., only learning rate), the agent isn't exploring — it's grid-searching. The outer loop should detect this and redirect.
 - **Never trying radical changes**: Small incremental tweaks converge to local optima. After a plateau, the outer loop should recommend a larger structural change.
 - **Optimizing the metric at the expense of everything else**: Metrics are proxies. Keep soft constraints (simplicity, memory, stability) in view.
+- **Running parallel batches without diversifying**: If all K experiments in a batch explore the same category, you're grid-searching in parallel instead of exploring. Spread hypotheses across open categories.
 
 ## Now Apply This
 

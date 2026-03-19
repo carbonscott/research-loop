@@ -11,7 +11,8 @@ Create a `research-loop/` directory inside the user's project:
 ├── research-loop/
 │   ├── experiments.db        # SQLite experiment log
 │   ├── insights.md           # Outer loop output (bounded, overwritten each cycle)
-│   └── protocol.md           # This session's loop definitions (generated from onboarding)
+│   ├── protocol.md           # This session's loop definitions (generated from onboarding)
+│   └── worktrees/            # Ephemeral worktrees for batch mode (created/removed per batch)
 ├── <experiment artifacts>    # Whatever the user modifies (code, config, etc.)
 └── ...
 ```
@@ -49,9 +50,10 @@ CREATE TABLE IF NOT EXISTS experiments (
     timestamp   TEXT DEFAULT (datetime('now')),
     change_type TEXT,        -- category: "architecture", "hyperparameter", "optimizer", "config", etc.
     description TEXT,        -- what was tried, in plain language
-    status      TEXT,        -- "keep", "discard", or "crash"
+    status      TEXT,        -- "keep", "discard", "crash", or "keep-deferred" (batch mode)
     metrics     TEXT,        -- JSON object, flexible: {"val_bpb": 0.99, "memory_gb": 44.0}
-    notes       TEXT         -- agent's interpretation of why it worked/failed
+    notes       TEXT,        -- agent's interpretation of why it worked/failed
+    batch_id    INTEGER      -- NULL for sequential mode; shared across experiments in a batch
 );
 
 CREATE TABLE IF NOT EXISTS distillations (
@@ -82,7 +84,8 @@ CREATE TABLE IF NOT EXISTS experiments (
     description TEXT,
     status      TEXT,
     metrics     TEXT,
-    notes       TEXT
+    notes       TEXT,
+    batch_id    INTEGER
 );
 CREATE TABLE IF NOT EXISTS distillations (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -110,6 +113,35 @@ sqlite3 -header -column research-loop/experiments.db \
 # Summary by category and status
 sqlite3 -header -column research-loop/experiments.db \
   "SELECT change_type, status, COUNT(*) as count FROM experiments GROUP BY change_type, status ORDER BY change_type;"
+```
+
+### Helper: Batch mode — create worktrees (batch mode only)
+
+```bash
+# Create K worktrees branching from current research branch HEAD
+BATCH_ID=$(sqlite3 research-loop/experiments.db "SELECT COALESCE(MAX(batch_id), 0) + 1 FROM experiments;")
+RESEARCH_BRANCH=$(git branch --show-current)
+for i in $(seq 1 $K); do
+  git worktree add research-loop/worktrees/exp-${BATCH_ID}-${i} -b exp/${BATCH_ID}-${i} ${RESEARCH_BRANCH}
+done
+```
+
+### Helper: Batch mode — teardown worktrees (batch mode only)
+
+```bash
+# After evaluating all experiments in a batch
+for i in $(seq 1 $K); do
+  git worktree remove research-loop/worktrees/exp-${BATCH_ID}-${i}
+  git branch -D exp/${BATCH_ID}-${i}  # delete branch (unless it's the winner being merged)
+done
+```
+
+### Helper: Batch mode — merge winner
+
+```bash
+# Merge the best keep from the batch into the research branch
+WINNER_BRANCH="exp/${BATCH_ID}-${WINNER_INDEX}"
+git merge --ff-only ${WINNER_BRANCH} || git merge ${WINNER_BRANCH} -m "exp: merge batch ${BATCH_ID} winner"
 ```
 
 ## insights.md Template
@@ -162,6 +194,10 @@ Generate this from the onboarding answers. It's the user's specific loop definit
 - **Cadence**: Every <N> experiments
 - **Plateau trigger**: <M> consecutive discards
 - **Whichever comes first**
+
+## Parallelism
+- **Batch size (K)**: <from onboarding Q7, default 1 = sequential>
+- **Submission method**: <local / sbatch / background processes>
 ```
 
 ## .gitignore Addition
