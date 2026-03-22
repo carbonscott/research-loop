@@ -32,7 +32,7 @@ A campaign is the top-level research infrastructure. It contains two lab-noteboo
     └── ...
 ```
 
-The logbook and notebook use separate schemas for separate purposes:
+The logbook and notebook use separate templates for separate purposes:
 - **Logbook** (`research-logbook` template): structured experiment data — metrics, status, change_type
 - **Notebook** (`research-notebook` template): narrative insights — observations, decisions, dead-ends
 
@@ -172,7 +172,7 @@ logbook sql "SELECT ts, status, change_type, substr(content,1,60), metrics
     FROM entries WHERE context='$SESSION' AND type IN ('experiment','baseline')
     AND ts > COALESCE(
         (SELECT MAX(ts) FROM entries WHERE type='distillation' AND context='$SESSION'),
-        '')
+        '')  -- empty string compares less than any timestamp
     ORDER BY ts"
 
 # Summary by category and status
@@ -216,6 +216,7 @@ done
 
 ```bash
 cd "$CODEBASE"
+WINNER_INDEX=<index of best-performing worktree>
 WINNER_BRANCH="exp/${SESSION}/${BATCH_ID}-${WINNER_INDEX}"
 git merge --ff-only "$WINNER_BRANCH" \
     || git merge "$WINNER_BRANCH" -m "exp: merge batch ${BATCH_ID} winner"

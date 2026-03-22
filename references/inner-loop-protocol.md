@@ -141,13 +141,13 @@ Do NOT ask the user "should I continue?" — the loop is autonomous. The only pa
 
 ---
 
-## Batch Mode (Optional)
+## Bulk Mode (Optional)
 
 When the protocol specifies bulk mode (K > 1), the inner loop runs K experiments in parallel using git worktrees instead of one at a time. **If K=1 (sequential), ignore this section entirely — use the sequential cycle above.**
 
-**Baseline first**: Run the baseline as a single sequential experiment before starting batch mode. The baseline establishes the reference metric for keep/discard decisions across all batches.
+**Baseline first**: Run the baseline as a single sequential experiment before starting bulk mode. The baseline establishes the reference metric for keep/discard decisions across all batches.
 
-### The Batch Cycle
+### The Bulk Cycle
 
 ```
 1.  READ       insights.md (if it exists)
@@ -218,13 +218,13 @@ Submit all K experiments. The exact method depends on the environment:
 ```bash
 # Slurm
 for i in $(seq 1 $K); do
-  (cd $CODEBASE/worktrees/exp-${BATCH_ID}-${i} && \
+  (cd "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}" && \
     sbatch --job-name=exp-${BATCH_ID}-${i} run.sh)
 done
 
 # Background processes
 for i in $(seq 1 $K); do
-  (cd $CODEBASE/worktrees/exp-${BATCH_ID}-${i} && \
+  (cd "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}" && \
     <run command> > run.log 2>&1) &
 done
 wait
@@ -260,6 +260,7 @@ All K experiments in a batch share the same `batch_id`.
 **Then merge the winner** into the session branch:
 ```bash
 cd "$CODEBASE"
+WINNER_INDEX=<index of best-performing worktree>
 WINNER_BRANCH="exp/${SESSION}/${BATCH_ID}-${WINNER_INDEX}"
 git merge --ff-only "$WINNER_BRANCH" \
     || git merge "$WINNER_BRANCH" -m "exp: merge batch ${BATCH_ID} winner"
@@ -275,9 +276,9 @@ done
 
 **Why "winner takes main"**: All worktrees branched from the same HEAD, so the winner's merge is always a clean fast-forward. Merging multiple keeps risks conflicts (two experiments modifying the same file differently) and produces untested combinations. Keep it simple — let the outer loop suggest combining promising directions in a future batch.
 
-### Plateau Detection in Batch Mode
+### Plateau Detection in Bulk Mode
 
-In sequential mode, M consecutive discards triggers the outer loop. In batch mode, count at the batch level:
+In sequential mode, M consecutive discards triggers the outer loop. In bulk mode, count at the batch level:
 - A batch with 0 keeps counts as 1 "batch discard"
 - M consecutive batch discards (not individual discards) triggers the outer loop
 - A batch with at least 1 keep resets the consecutive discard counter

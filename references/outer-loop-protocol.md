@@ -32,7 +32,7 @@ logbook sql "SELECT ts, change_type, status, metrics, substr(content,1,80)
     FROM entries WHERE context='$SESSION' AND type IN ('experiment','baseline')
     AND ts > COALESCE(
         (SELECT MAX(ts) FROM entries WHERE type='distillation' AND context='$SESSION'),
-        '')
+        '')  -- empty string compares less than any timestamp
     ORDER BY ts"
 
 # Summary statistics
@@ -41,7 +41,7 @@ logbook sql "SELECT status, COUNT(*) as count, change_type,
     FROM entries WHERE context='$SESSION' AND type='experiment'
     AND ts > COALESCE(
         (SELECT MAX(ts) FROM entries WHERE type='distillation' AND context='$SESSION'),
-        '')
+        '')  -- empty string compares less than any timestamp
     GROUP BY status, change_type"
 ```
 
