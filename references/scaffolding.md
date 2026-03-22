@@ -1,154 +1,277 @@
-# Scaffolding: Setting Up the Research Loop Infrastructure
+# Scaffolding: Setting Up Campaign Infrastructure
 
 After onboarding, set up these concrete artifacts. Adapt the details based on the user's answers.
 
-## Directory Structure
+## Campaign Directory Structure
 
-Create a `research-loop/` directory inside the user's project:
+A campaign is the top-level research infrastructure. It contains two lab-notebook instances (logbook + notebook) and a sessions directory.
 
 ```
-<project>/
-├── research-loop/
-│   ├── experiments.db        # SQLite experiment log
-│   ├── insights.md           # Outer loop output (bounded, overwritten each cycle)
-│   ├── protocol.md           # This session's loop definitions (generated from onboarding)
-│   └── worktrees/            # Ephemeral worktrees for batch mode (created/removed per batch)
-├── <experiment artifacts>    # Whatever the user modifies (code, config, etc.)
-└── ...
+<campaign>/
+├── .env                         # Shell function wrappers: logbook(), notebook()
+├── logbook/                     # All experiments across all sessions (lab-notebook instance)
+│   ├── schema.yaml              # research-logbook template
+│   ├── entries/                 # Per-writer JSONL files (git-tracked)
+│   │   ├── agent-seq.jsonl
+│   │   ├── agent-wt-1.jsonl
+│   │   └── ...
+│   ├── index.sqlite             # Disposable query index (gitignored, rebuilt on demand)
+│   └── .gitignore
+├── notebook/                    # Narrative insights across sessions (lab-notebook instance)
+│   ├── schema.yaml              # research-notebook template
+│   ├── entries/
+│   ├── index.sqlite
+│   └── .gitignore
+└── sessions/
+    ├── <session-name>/
+    │   ├── protocol.md          # This session's loop definitions (from onboarding)
+    │   ├── insights.md          # Bounded working memory (overwritten each distillation)
+    │   └── codebase/            # Git worktree on branch research/<session-name>
+    └── ...
 ```
 
-`research-loop/` should be added to `.gitignore` — it tracks the research *process*, not the research *product*. The product (kept code/config changes) lives in git proper.
+The logbook and notebook use separate schemas for separate purposes:
+- **Logbook** (`research-logbook` template): structured experiment data — metrics, status, change_type
+- **Notebook** (`research-notebook` template): narrative insights — observations, decisions, dead-ends
 
-## Git Setup
-
-### Create a research branch
+## Campaign Initialization
 
 ```bash
-# Agree on a tag with the user (e.g., date-based)
-git checkout -b research/<tag>
+CAMPAIGN=/path/to/campaign
+
+# 1. Create directory structure
+mkdir -p "$CAMPAIGN"/{logbook,notebook,sessions}
+
+# 2. Initialize logbook (structured experiment log)
+lab-notebook init "$CAMPAIGN/logbook" --template research-logbook
+
+# 3. Initialize notebook (narrative insights)
+lab-notebook init "$CAMPAIGN/notebook" --template research-notebook
+
+# 4. Write campaign .env (see below)
 ```
 
-All experiments happen on this branch. The main/master branch stays clean.
+### Campaign .env
+
+Create `$CAMPAIGN/.env` with shell function wrappers. This is the key mechanism — the agent calls `logbook emit ...` or `notebook emit ...` without managing env vars:
+
+```bash
+# Campaign environment — source this before any research loop work
+CAMPAIGN_DIR="<absolute path to campaign>"
+
+logbook() { LAB_NOTEBOOK_DIR="$CAMPAIGN_DIR/logbook" lab-notebook "$@"; }
+notebook() { LAB_NOTEBOOK_DIR="$CAMPAIGN_DIR/notebook" lab-notebook "$@"; }
+
+export CAMPAIGN_DIR
+export -f logbook notebook
+```
+
+After sourcing, usage is:
+
+```bash
+source "$CAMPAIGN/.env"
+
+# Log an experiment
+logbook emit --context my-session --type experiment ...
+
+# Record a narrative insight
+notebook emit --context my-session --type observation ...
+
+# Query experiments
+logbook sql "SELECT * FROM entries WHERE context='my-session'"
+```
+
+## Session Creation
+
+Each session is one series of exploration. The codebase lives inside the session as a git worktree.
+
+```bash
+SESSION=mae-exploration
+BASE_BRANCH=main   # or whatever branch to fork from
+
+# 1. Create session directory
+mkdir -p "$CAMPAIGN/sessions/$SESSION"
+
+# 2. Create codebase as git worktree on a research branch
+cd /path/to/source-repo
+git worktree add "$CAMPAIGN/sessions/$SESSION/codebase" \
+    -b "research/$SESSION" "$BASE_BRANCH"
+
+# 3. Write protocol.md (from onboarding template below)
+# 4. Write initial insights.md (empty template below)
+```
+
+### Session mode
+
+The protocol.md records whether this session runs sequentially or in bulk:
+
+- **Sequential**: One experiment at a time. The agent modifies code, commits, runs, evaluates — all on the session's research branch. No worktrees needed.
+- **Bulk (K>1)**: K experiments per batch. The agent creates K ephemeral worktrees from the session branch, runs K experiments in parallel, reconciles, and cleans up.
+
+The logbook doesn't care — both modes produce `experiment` entries with `context=<session-name>`. Bulk entries also set `batch_id`.
+
+## Git Setup
 
 ### Commit conventions
 
 Each experiment commit should be descriptive:
+
 ```
 git commit -m "exp: <what this experiment tries>"
 ```
 
 The `exp:` prefix makes research commits easy to find in git log.
 
-## SQLite Schema
+### Branch strategy
 
-Initialize `experiments.db` with two tables:
+- Each session gets branch `research/<session-name>`
+- Sequential experiments are commits on this branch
+- Bulk worktrees branch from this session branch per batch
+- The main/master branch stays clean
 
-```sql
-CREATE TABLE IF NOT EXISTS experiments (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    commit_hash TEXT,
-    timestamp   TEXT DEFAULT (datetime('now')),
-    change_type TEXT,        -- category: "architecture", "hyperparameter", "optimizer", "config", etc.
-    description TEXT,        -- what was tried, in plain language
-    status      TEXT,        -- "keep", "discard", "crash", or "keep-deferred" (batch mode)
-    metrics     TEXT,        -- JSON object, flexible: {"val_bpb": 0.99, "memory_gb": 44.0}
-    notes       TEXT,        -- agent's interpretation of why it worked/failed
-    batch_id    INTEGER      -- NULL for sequential mode; shared across experiments in a batch
-);
+## Logbook Helpers
 
-CREATE TABLE IF NOT EXISTS distillations (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp   TEXT DEFAULT (datetime('now')),
-    after_exp   INTEGER REFERENCES experiments(id),  -- which experiment triggered this
-    summary     TEXT,        -- the compressed knowledge
-    strategy    TEXT         -- what to try next
-);
-```
+All commands assume you have sourced the campaign `.env`.
 
-### Why SQLite (not a flat file)
-
-- **Queryable**: "Show me all architecture experiments that were kept" is a SQL query, not a grep
-- **Structured**: JSON metrics field handles any metric shape without schema changes
-- **Lightweight**: No server, single file, works everywhere
-- **Durable**: Atomic writes, no corruption from crashes mid-write
-
-### Helper: Initialize the database
+### Log a baseline
 
 ```bash
-sqlite3 research-loop/experiments.db <<'SQL'
-CREATE TABLE IF NOT EXISTS experiments (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    commit_hash TEXT,
-    timestamp   TEXT DEFAULT (datetime('now')),
-    change_type TEXT,
-    description TEXT,
-    status      TEXT,
-    metrics     TEXT,
-    notes       TEXT,
-    batch_id    INTEGER
-);
-CREATE TABLE IF NOT EXISTS distillations (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp   TEXT DEFAULT (datetime('now')),
-    after_exp   INTEGER REFERENCES experiments(id),
-    summary     TEXT,
-    strategy    TEXT
-);
-SQL
+logbook emit --context "$SESSION" --type baseline \
+    --commit_hash "$(git rev-parse --short HEAD)" \
+    --status keep \
+    --metrics '{"val_bpb": 1.012, "memory_gb": 48}' \
+    "Baseline run with unmodified code. Reference point for all comparisons."
 ```
 
-### Helper: Log an experiment
+### Log an experiment
 
 ```bash
-sqlite3 research-loop/experiments.db "INSERT INTO experiments (commit_hash, change_type, description, status, metrics, notes) VALUES ('$(git rev-parse --short HEAD)', '<type>', '<description>', '<status>', '<json>', '<notes>');"
+logbook emit --context "$SESSION" --type experiment \
+    --commit_hash "$(git rev-parse --short HEAD)" \
+    --change_type architecture \
+    --status keep \
+    --metrics '{"val_bpb": 0.993, "memory_gb": 44}' \
+    "Increased encoder depth from 8 to 10. Consistent improvement, freed memory by reducing batch size."
 ```
 
-### Helper: Query recent experiments
+### Log a distillation
+
+```bash
+logbook emit --context "$SESSION" --type distillation \
+    --strategy "Focus on depth increases; stop exploring activation functions" \
+    "After 10 experiments: depth helps (3/3 kept), activation changes all failed (0/4). Best val_bpb=0.91 vs baseline 1.012."
+```
+
+### Query recent experiments
 
 ```bash
 # All experiments since last distillation
-sqlite3 -header -column research-loop/experiments.db \
-  "SELECT id, status, change_type, substr(description,1,50) as description, metrics FROM experiments WHERE id > (SELECT COALESCE(MAX(after_exp), 0) FROM distillations);"
+logbook sql "SELECT ts, status, change_type, substr(content,1,60), metrics
+    FROM entries WHERE context='$SESSION' AND type IN ('experiment','baseline')
+    AND ts > COALESCE(
+        (SELECT MAX(ts) FROM entries WHERE type='distillation' AND context='$SESSION'),
+        '')
+    ORDER BY ts"
 
 # Summary by category and status
-sqlite3 -header -column research-loop/experiments.db \
-  "SELECT change_type, status, COUNT(*) as count FROM experiments GROUP BY change_type, status ORDER BY change_type;"
+logbook sql "SELECT change_type, status, COUNT(*) as n
+    FROM entries WHERE context='$SESSION' AND type='experiment'
+    GROUP BY change_type, status ORDER BY change_type"
+
+# Best metric so far
+logbook sql "SELECT json_extract(metrics, '$.val_bpb') as metric, substr(content,1,60)
+    FROM entries WHERE context='$SESSION' AND status='keep'
+    ORDER BY CAST(json_extract(metrics, '$.val_bpb') AS REAL) ASC LIMIT 1"
 ```
 
-### Helper: Batch mode — create worktrees (batch mode only)
+### Bulk mode — create worktrees
 
 ```bash
-# Create K worktrees branching from current research branch HEAD
-BATCH_ID=$(sqlite3 research-loop/experiments.db "SELECT COALESCE(MAX(batch_id), 0) + 1 FROM experiments;")
-RESEARCH_BRANCH=$(git branch --show-current)
+BATCH_ID=$(logbook sql "SELECT COALESCE(MAX(batch_id), 0) + 1
+    FROM entries WHERE context='$SESSION'" | tail -1 | tr -d ' ')
+SESSION_BRANCH="research/$SESSION"
+CODEBASE="$CAMPAIGN/sessions/$SESSION/codebase"
+
 for i in $(seq 1 $K); do
-  git worktree add research-loop/worktrees/exp-${BATCH_ID}-${i} -b exp/${BATCH_ID}-${i} ${RESEARCH_BRANCH}
+  git worktree add "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}" \
+      -b "exp/${SESSION}/${BATCH_ID}-${i}" "$SESSION_BRANCH"
 done
 ```
 
 **Note**: Each worktree duplicates working tree files (the object store is shared via hardlinks). For large repos with K=8+, ensure sufficient disk for K concurrent checkouts.
 
-### Helper: Batch mode — teardown worktrees (batch mode only)
+### Bulk mode — teardown worktrees
 
 ```bash
-# After evaluating all experiments in a batch
 for i in $(seq 1 $K); do
-  git worktree remove research-loop/worktrees/exp-${BATCH_ID}-${i}
-  git branch -D exp/${BATCH_ID}-${i}  # safe: winner's commits already merged to research branch
+  git worktree remove "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}"
+  git branch -D "exp/${SESSION}/${BATCH_ID}-${i}"
 done
 ```
 
-### Helper: Batch mode — merge winner
+### Bulk mode — merge winner
 
 ```bash
-# Merge the best keep from the batch into the research branch
-WINNER_BRANCH="exp/${BATCH_ID}-${WINNER_INDEX}"
-git merge --ff-only ${WINNER_BRANCH} || git merge ${WINNER_BRANCH} -m "exp: merge batch ${BATCH_ID} winner"
+cd "$CODEBASE"
+WINNER_BRANCH="exp/${SESSION}/${BATCH_ID}-${WINNER_INDEX}"
+git merge --ff-only "$WINNER_BRANCH" \
+    || git merge "$WINNER_BRANCH" -m "exp: merge batch ${BATCH_ID} winner"
 ```
+
+## Notebook Helpers
+
+The outer loop writes narrative insights to the campaign notebook for cross-session persistence.
+
+### Record a distillation insight
+
+```bash
+notebook emit --context "$SESSION" --type observation \
+    --tags distillation \
+    "Depth increases consistently improve BPB (3/3 kept). Activation changes all failed (4 attempts). Memory is now the binding constraint."
+```
+
+### Record a dead-end
+
+```bash
+notebook emit --context "$SESSION" --type dead-end \
+    --tags architecture,activation \
+    "Activation function changes (GeLU, SiLU, Swish) tried 4 times with no improvement. The MLP is not the bottleneck."
+```
+
+### Record a strategic decision
+
+```bash
+notebook emit --context "$SESSION" --type decision \
+    --tags strategy-pivot \
+    "Pivoting from architecture search to memory optimization. Architecture gains plateaued; need to unlock depth 12 via gradient checkpointing."
+```
+
+## Cross-Session Bootstrap
+
+When starting a new session within an existing campaign, query the notebook for prior knowledge before running the first experiment:
+
+```bash
+# What dead-ends have been found across all sessions?
+notebook sql "SELECT ts, context, substr(content,1,100)
+    FROM entries WHERE type='dead-end' ORDER BY ts DESC LIMIT 20"
+
+# What strategic decisions have been made?
+notebook sql "SELECT ts, context, substr(content,1,100)
+    FROM entries WHERE type='decision' ORDER BY ts DESC LIMIT 20"
+
+# What milestones have been reached?
+notebook sql "SELECT ts, context, substr(content,1,100)
+    FROM entries WHERE type='milestone' ORDER BY ts DESC LIMIT 10"
+
+# All contexts (sessions) that have been explored
+notebook contexts
+```
+
+Use these results to pre-seed the new session's `insights.md` with prior knowledge. This prevents repeating experiments that were already ruled out in earlier sessions.
 
 ## insights.md Template
 
-Create the initial empty template:
+Create the initial empty template per session:
 
 ```markdown
 # Research Insights
@@ -160,13 +283,16 @@ This file gets overwritten (not appended) each distillation cycle. It should nev
 
 ## protocol.md Template
 
-Generate this from the onboarding answers. It's the user's specific loop definition:
+Generate this from the onboarding answers. It is the session's specific loop definition:
 
 ```markdown
 # Research Protocol
 
 ## Session
-- **Branch**: research/<tag>
+- **Campaign**: <campaign directory>
+- **Session**: <session name>
+- **Mode**: sequential | bulk (K=<n>)
+- **Branch**: research/<session-name>
 - **Started**: <date>
 - **Goal**: <user's research goal>
 
@@ -197,15 +323,8 @@ Generate this from the onboarding answers. It's the user's specific loop definit
 - **Plateau trigger**: <M> consecutive discards
 - **Whichever comes first**
 
-## Parallelism
+## Session Mode
+- **Mode**: <sequential | bulk>
 - **Batch size (K)**: <from onboarding Q7, default 1 = sequential>
 - **Submission method**: <local / sbatch / background processes>
 ```
-
-## .gitignore Addition
-
-```bash
-echo "research-loop/" >> .gitignore
-```
-
-The research-loop directory tracks process, not product. Kept code changes are already in git commits on the research branch.

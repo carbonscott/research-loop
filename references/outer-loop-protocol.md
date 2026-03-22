@@ -13,58 +13,58 @@ When triggered, the inner loop pauses. The agent switches to reflection mode.
 ## The Distillation Cycle
 
 ```
-1. READ     the full experiment log (SQLite query)
+1. READ     the logbook (query via logbook sql)
 2. ANALYZE  patterns across experiments
 3. WRITE    insights.md (overwrite, not append — bounded size)
-4. PLAN     strategy for next inner loop batch
+4. RECORD   distillation to logbook + narrative to notebook
 5. RESUME   inner loop with updated insights
 ```
 
 ## Step Details
 
-### 1. Read the Experiment Log
+### 1. Read the Logbook
 
-Query the SQLite database for all experiments since the last distillation (or all experiments if this is the first distillation):
+Query the logbook for all experiments since the last distillation (or all experiments if this is the first distillation):
 
-```sql
--- All experiments since last distillation
-SELECT id, change_type, description, status, metrics, notes
-FROM experiments
-WHERE id > (SELECT COALESCE(MAX(after_exp), 0) FROM distillations)
-ORDER BY id;
+```bash
+# All experiments since last distillation
+logbook sql "SELECT ts, change_type, status, metrics, substr(content,1,80)
+    FROM entries WHERE context='$SESSION' AND type IN ('experiment','baseline')
+    AND ts > COALESCE(
+        (SELECT MAX(ts) FROM entries WHERE type='distillation' AND context='$SESSION'),
+        '')
+    ORDER BY ts"
 
--- Summary statistics
-SELECT
-  status,
-  COUNT(*) as count,
-  change_type,
-  GROUP_CONCAT(description, '; ') as descriptions
-FROM experiments
-WHERE id > (SELECT COALESCE(MAX(after_exp), 0) FROM distillations)
-GROUP BY status, change_type;
+# Summary statistics
+logbook sql "SELECT status, COUNT(*) as count, change_type,
+        GROUP_CONCAT(substr(content,1,40), '; ') as descriptions
+    FROM entries WHERE context='$SESSION' AND type='experiment'
+    AND ts > COALESCE(
+        (SELECT MAX(ts) FROM entries WHERE type='distillation' AND context='$SESSION'),
+        '')
+    GROUP BY status, change_type"
 ```
 
 ### 2. Analyze Patterns
 
 **Batch-specific queries** (when batch_id is present):
 
-```sql
--- Keep rate per batch (are batches getting better over time?)
-SELECT batch_id, COUNT(*) as n,
-       SUM(status IN ('keep', 'keep-deferred')) as kept,
-       SUM(status = 'discard') as discarded
-FROM experiments
-WHERE batch_id IS NOT NULL
-GROUP BY batch_id;
+```bash
+# Keep rate per batch (are batches getting better over time?)
+logbook sql "SELECT batch_id, COUNT(*) as n,
+        SUM(status IN ('keep', 'keep-deferred')) as kept,
+        SUM(status = 'discard') as discarded
+    FROM entries WHERE context='$SESSION' AND batch_id IS NOT NULL
+    GROUP BY batch_id"
 
--- Were deferred keeps worth revisiting?
-SELECT id, description, metrics, notes FROM experiments
-WHERE status = 'keep-deferred';
+# Were deferred keeps worth revisiting?
+logbook sql "SELECT ts, substr(content,1,80), metrics
+    FROM entries WHERE context='$SESSION' AND status='keep-deferred'"
 
--- Batch diversity check (flag batches that only explored one category)
-SELECT batch_id, COUNT(DISTINCT change_type) as categories, COUNT(*) as n
-FROM experiments WHERE batch_id IS NOT NULL
-GROUP BY batch_id HAVING categories < 2;
+# Batch diversity check (flag batches that only explored one category)
+logbook sql "SELECT batch_id, COUNT(DISTINCT change_type) as categories, COUNT(*) as n
+    FROM entries WHERE context='$SESSION' AND batch_id IS NOT NULL
+    GROUP BY batch_id HAVING categories < 2"
 ```
 
 Look for:
@@ -126,18 +126,59 @@ Template:
 - [Anything uncertain that could be tested]
 ```
 
-### 4. Record the Distillation
+### 4. Record to Logbook AND Notebook
 
-```sql
-INSERT INTO distillations (timestamp, after_exp, summary, strategy)
-VALUES ('<now>', <last_experiment_id>, '<insights summary>', '<next strategy>');
+**Always** record the distillation to the logbook (operational record):
+
+```bash
+logbook emit --context "$SESSION" --type distillation \
+    --strategy "Focus on depth increases; stop exploring activation functions" \
+    "After 10 experiments: depth helps (3/3 kept), activation changes all failed (0/4). Best val_bpb=0.91 vs baseline 1.012."
 ```
 
-This creates a history of how the agent's understanding evolved over time.
+**Also** record significant findings to the campaign notebook (narrative record, visible to future sessions):
+
+```bash
+# Record dead-ends so future sessions don't repeat them
+notebook emit --context "$SESSION" --type dead-end \
+    --tags activation,architecture \
+    "Activation function changes (GeLU, SiLU, Swish) tried 4 times with no improvement. The MLP is not the bottleneck."
+
+# Record key decisions
+notebook emit --context "$SESSION" --type decision \
+    --tags strategy \
+    "Focusing on depth increases. Architecture gains are consistent; memory optimization needed to unlock depth 12."
+
+# Record milestones
+notebook emit --context "$SESSION" --type milestone \
+    "Best val_bpb=0.91, 10% improvement over baseline after 10 experiments."
+```
+
+Not every distillation needs all notebook entry types. Write what is significant for cross-session knowledge: dead-ends (prevent repeating), decisions (explain direction), milestones (track progress).
 
 ### 5. Resume the Inner Loop
 
 Return to the inner loop. The next hypothesis should be informed by the freshly written `insights.md`. The agent reads it at step 1 of the inner loop cycle.
+
+## Cross-Session Bootstrap
+
+When starting a new session within the same campaign, the agent should query the notebook before running the first experiment:
+
+```bash
+# What dead-ends exist from prior sessions?
+notebook sql "SELECT ts, context, substr(content,1,100)
+    FROM entries WHERE type='dead-end' ORDER BY ts DESC LIMIT 20"
+
+# What strategic decisions have been made?
+notebook sql "SELECT ts, context, substr(content,1,100)
+    FROM entries WHERE type='decision' ORDER BY ts DESC LIMIT 20"
+
+# What milestones have been reached?
+notebook sql "SELECT ts, context, substr(content,1,100)
+    FROM entries WHERE type='milestone' ORDER BY ts DESC LIMIT 10"
+```
+
+Use these results to pre-seed the new session's `insights.md` with prior knowledge. This prevents repeating experiments that were already ruled out in earlier sessions.
 
 ## What Good Distillation Looks Like
 

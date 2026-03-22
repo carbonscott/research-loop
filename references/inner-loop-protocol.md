@@ -12,7 +12,7 @@ The inner loop's job is to **maximize information gathered per unit compute**. E
 5. RUN     the experiment (redirect output to log file)
 6. EVALUATE  extract metrics from output
 7. DECIDE  keep or discard (based on comparison function)
-8. LOG     record to SQLite (regardless of outcome)
+8. LOG     record to logbook (regardless of outcome)
 9. REPEAT  go to step 1
 ```
 
@@ -108,16 +108,20 @@ IF primary didn't improve → DISCARD
 - If the idea is fundamentally broken (OOM, incompatible architecture), log as crash and move on.
 - Don't spend more than 2-3 attempts fixing a crash before abandoning.
 
-### 8. Log to SQLite
+### 8. Log to Logbook
 
 Every experiment gets logged, regardless of outcome:
 
-```sql
-INSERT INTO experiments (commit_hash, timestamp, change_type, description, status, metrics, notes)
-VALUES ('<hash>', '<now>', '<category>', '<what was tried>', '<keep|discard|crash>', '<json metrics>', '<why it worked or failed>');
+```bash
+logbook emit --context "$SESSION" --type experiment \
+    --commit_hash "$(git rev-parse --short HEAD)" \
+    --change_type "<category>" \
+    --status "<keep|discard|crash>" \
+    --metrics '<json metrics>' \
+    "What was tried and why it worked or failed."
 ```
 
-The `notes` field is important — it captures the agent's interpretation, not just the numbers. This is what the outer loop reads during distillation.
+The `content` field (the positional argument) is important — it captures what was tried AND the agent's interpretation, not just the numbers. This is what the outer loop reads during distillation.
 
 ## Baseline Run
 
@@ -127,7 +131,7 @@ The first experiment is always a baseline: run the existing code/config without 
 - Memory/resource usage
 - That the setup works at all
 
-Log it as `status: keep, description: baseline`.
+Log it with `logbook emit --context "$SESSION" --type baseline --status keep ...`.
 
 ## When to Trigger the Outer Loop
 
@@ -139,7 +143,7 @@ Do NOT ask the user "should I continue?" — the loop is autonomous. The only pa
 
 ## Batch Mode (Optional)
 
-When the protocol specifies batch size K > 1, the inner loop runs K experiments in parallel using git worktrees instead of one at a time. **If K=1, ignore this section entirely — use the sequential cycle above.**
+When the protocol specifies bulk mode (K > 1), the inner loop runs K experiments in parallel using git worktrees instead of one at a time. **If K=1 (sequential), ignore this section entirely — use the sequential cycle above.**
 
 **Baseline first**: Run the baseline as a single sequential experiment before starting batch mode. The baseline establishes the reference metric for keep/discard decisions across all batches.
 
@@ -154,8 +158,8 @@ When the protocol specifies batch size K > 1, the inner loop runs K experiments 
 6.  RUN        K experiments in parallel (sbatch, background processes, etc.)
 7.  WAIT       for all K to complete
 8.  EVALUATE   each independently (extract metrics, decide keep/discard)
-9.  LOG        all K to SQLite with shared batch_id
-10. RECONCILE  merge best keep into research branch, clean up worktrees
+9.  LOG        all K to logbook with shared batch_id
+10. RECONCILE  merge best keep into session branch, clean up worktrees
 11. CHECK      total experiments += K; if >= N → trigger outer loop, else next batch
 ```
 
@@ -182,16 +186,17 @@ If K > number of open categories, multiple per category are fine but should vary
 
 #### 3. Setup worktrees
 
-Create K worktrees, each branching from the current research branch HEAD:
+Create K worktrees, each branching from the current session branch HEAD:
 
 ```bash
-BATCH_ID=$(sqlite3 research-loop/experiments.db \
-  "SELECT COALESCE(MAX(batch_id), 0) + 1 FROM experiments;")
-RESEARCH_BRANCH=$(git branch --show-current)
+BATCH_ID=$(logbook sql "SELECT COALESCE(MAX(batch_id), 0) + 1
+    FROM entries WHERE context='$SESSION'" | tail -1 | tr -d ' ')
+SESSION_BRANCH="research/$SESSION"
+CODEBASE="$CAMPAIGN/sessions/$SESSION/codebase"
 
 for i in $(seq 1 $K); do
-  git worktree add research-loop/worktrees/exp-${BATCH_ID}-${i} \
-    -b exp/${BATCH_ID}-${i} ${RESEARCH_BRANCH}
+  git worktree add "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}" \
+    -b "exp/${SESSION}/${BATCH_ID}-${i}" "$SESSION_BRANCH"
 done
 ```
 
@@ -200,7 +205,7 @@ Each worktree gets an independent copy of the codebase. Changes in one don't aff
 #### 5. Commit in each worktree
 
 ```bash
-(cd research-loop/worktrees/exp-${BATCH_ID}-${i} && \
+(cd "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}" && \
   git add <modified files> && \
   git commit -m "exp: batch ${BATCH_ID} hyp ${i} — <description>")
 ```
@@ -212,13 +217,13 @@ Submit all K experiments. The exact method depends on the environment:
 ```bash
 # Slurm
 for i in $(seq 1 $K); do
-  (cd research-loop/worktrees/exp-${BATCH_ID}-${i} && \
+  (cd $CODEBASE/worktrees/exp-${BATCH_ID}-${i} && \
     sbatch --job-name=exp-${BATCH_ID}-${i} run.sh)
 done
 
 # Background processes
 for i in $(seq 1 $K); do
-  (cd research-loop/worktrees/exp-${BATCH_ID}-${i} && \
+  (cd $CODEBASE/worktrees/exp-${BATCH_ID}-${i} && \
     <run command> > run.log 2>&1) &
 done
 wait
@@ -228,43 +233,42 @@ wait
 
 For Slurm: poll `squeue` until all batch jobs complete. For background processes: `wait` blocks until all finish.
 
-#### 9. Log with batch_id
+#### 9–10. Evaluate, Determine Winner, Then Log All K
 
-```sql
-INSERT INTO experiments (commit_hash, change_type, description, status, metrics, notes, batch_id)
-VALUES ('<hash>', '<type>', '<description>', '<keep|discard|crash>', '<json>', '<notes>', <BATCH_ID>);
+**Important**: The logbook is append-only — there is no UPDATE. Evaluate all K experiments and determine the batch winner BEFORE logging any of them. Then emit all K entries with their final status in one pass.
+
+After all K experiments complete, evaluate each independently, then:
+
+**If 0 keeps**: Log all K as `status discard`. Session branch unchanged.
+
+**If 1 keep**: Log the winner as `status keep`, others as `status discard`.
+
+**If multiple keeps**: Log the best one as `status keep`, other keeps as `status keep-deferred`, failures as `status discard`.
+
+```bash
+# Log each experiment with its final status
+logbook emit --context "$SESSION" --type experiment \
+    --commit_hash "<hash>" --change_type "<type>" \
+    --status "<keep|keep-deferred|discard|crash>" \
+    --metrics '<json>' --batch_id "$BATCH_ID" \
+    "What was tried and why it worked or failed."
 ```
 
 All K experiments in a batch share the same `batch_id`.
 
-#### 10. Reconcile
-
-This is the key step that differs from sequential mode. After evaluating all K experiments:
-
-**If 0 keeps**: Research branch unchanged. All logged as discards. Move to next batch (or trigger outer loop if plateau detected — count K discards toward the consecutive discard counter).
-
-**If 1 keep**: Merge that experiment's branch into the research branch:
+**Then merge the winner** into the session branch:
 ```bash
-git merge --ff-only exp/${BATCH_ID}-${WINNER}
-```
-
-**If multiple keeps**: Merge only the **best** one (highest primary metric improvement). Log the others as `keep-deferred` — they beat the baseline but weren't the batch winner. The outer loop can flag deferred keeps as promising directions.
-
-```sql
--- The winner
-UPDATE experiments SET status = 'keep'
-WHERE batch_id = <BATCH_ID> AND id = <winner_id>;
-
--- Other keeps that weren't merged
-UPDATE experiments SET status = 'keep-deferred'
-WHERE batch_id = <BATCH_ID> AND status = 'keep' AND id != <winner_id>;
+cd "$CODEBASE"
+WINNER_BRANCH="exp/${SESSION}/${BATCH_ID}-${WINNER_INDEX}"
+git merge --ff-only "$WINNER_BRANCH" \
+    || git merge "$WINNER_BRANCH" -m "exp: merge batch ${BATCH_ID} winner"
 ```
 
 **After merging**, clean up all worktrees:
 ```bash
 for i in $(seq 1 $K); do
-  git worktree remove research-loop/worktrees/exp-${BATCH_ID}-${i}
-  git branch -D exp/${BATCH_ID}-${i}
+  git worktree remove "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}"
+  git branch -D "exp/${SESSION}/${BATCH_ID}-${i}"
 done
 ```
 

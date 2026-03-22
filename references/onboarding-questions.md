@@ -1,5 +1,7 @@
 # Onboarding: Defining Your Research Loop
 
+Each campaign may have multiple sessions. The onboarding questions below define the protocol for a single session. If this is a new session within an existing campaign, review the campaign notebook for prior dead-ends and decisions before onboarding.
+
 Ask these questions before setting up infrastructure. Each answer shapes the loop design. Do not assume defaults — ask explicitly and listen.
 
 ---
@@ -126,9 +128,9 @@ Ask:
 
 ---
 
-## Question 7: Do you want to run experiments in parallel?
+## Question 7: How should this session run — sequential or bulk?
 
-**Why**: On a supercomputer or multi-GPU machine, running one experiment at a time wastes available compute. Batch mode uses git worktrees to run K experiments simultaneously, each in an isolated working directory.
+**Why**: Each session runs one series of exploration. Sequential sessions run one experiment at a time. Bulk sessions run K experiments in parallel per batch using git worktrees. The choice depends on available compute.
 
 Ask:
 - **How many experiments can you run at once?** (number of available GPUs, Slurm slots, or CPU cores)
@@ -141,9 +143,9 @@ Ask:
 | 2-4 | Small batch | Multi-GPU node, moderate parallelism |
 | 8+ | Large batch | Slurm cluster, overnight sweeps with many nodes |
 
-**If K=1**: Skip batch mode entirely. The sequential protocol applies unchanged.
+**If K=1**: Sequential mode. The agent runs one experiment at a time on the session branch.
 
-**If K>1**: The inner loop generates K diverse hypotheses per batch, runs them in parallel via git worktrees, evaluates all K, merges the best winner into the research branch, and logs everything to SQLite with a shared `batch_id`.
+**If K>1**: Bulk mode. The inner loop generates K diverse hypotheses per batch, runs them in parallel via git worktrees, evaluates all K, merges the best winner into the session branch, and logs everything to the campaign logbook with a shared `batch_id`.
 
 **How this shapes the loop**: Determines whether the inner loop runs sequentially or in batches. The outer loop is unaffected — it triggers after N total experiments regardless of how they were produced.
 
@@ -162,7 +164,7 @@ Once all questions are answered, summarize back to the user:
 **Budget**: [time per experiment, total session]
 **Versioning**: [what's committed, how rollback works]
 **Distillation**: [every N experiments / on plateau / both]
-**Parallelism**: [K experiments per batch / sequential (K=1)]
+**Session mode**: [sequential (K=1) / bulk (K=<n>)]
 ```
 
 Get explicit confirmation before proceeding to scaffolding.
