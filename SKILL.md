@@ -22,8 +22,8 @@ The inner loop generates data. The outer loop generates understanding. Both are 
 A research campaign is organized as:
 
 - **Campaign**: The top-level infrastructure — a logbook, a notebook, and one or more sessions.
-- **Logbook** (lab-notebook instance, `research-logbook` schema): All experiment results across all sessions. Structured data: metrics, status, change_type. Queried via `logbook sql`.
-- **Notebook** (lab-notebook instance, `research-notebook` schema): Narrative insights across sessions. Observations, decisions, dead-ends, milestones. Queried via `notebook sql` or `notebook search`.
+- **Logbook** (lab-notebook instance, `research-logbook` template): All experiment results across all sessions. Structured data: metrics, status, change_type. Queried via `logbook sql`.
+- **Notebook** (lab-notebook instance, `research-notebook` template): Narrative insights across sessions. Observations, decisions, dead-ends, milestones. Queried via `notebook sql` or `notebook search`.
 - **Session**: One series of exploration — sequential (branches) or bulk (worktrees). Each session has its own `protocol.md` (what to explore) and `insights.md` (bounded working memory). The codebase lives inside the session as a git worktree.
 
 The `context` field in every logbook/notebook entry scopes data to a session. Cross-session queries are just SQL without the context filter.

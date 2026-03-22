@@ -1,5 +1,7 @@
 # Scaffolding: Setting Up Campaign Infrastructure
 
+**Prerequisite**: [lab-notebook](https://github.com/carbonscott/lab-notebook) must be installed and available on `$PATH`.
+
 After onboarding, set up these concrete artifacts. Adapt the details based on the user's answers.
 
 ## Campaign Directory Structure
@@ -188,9 +190,10 @@ logbook sql "SELECT json_extract(metrics, '$.val_bpb') as metric, substr(content
 
 ```bash
 BATCH_ID=$(logbook sql "SELECT COALESCE(MAX(batch_id), 0) + 1
-    FROM entries WHERE context='$SESSION'" | tail -1 | tr -d ' ')
+    FROM entries WHERE context='$SESSION'" | awk 'NR==3{print $1}')
 SESSION_BRANCH="research/$SESSION"
 CODEBASE="$CAMPAIGN/sessions/$SESSION/codebase"
+K=<batch size from protocol.md>
 
 for i in $(seq 1 $K); do
   git worktree add "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}" \
@@ -262,6 +265,9 @@ notebook sql "SELECT ts, context, substr(content,1,100)
 # What milestones have been reached?
 notebook sql "SELECT ts, context, substr(content,1,100)
     FROM entries WHERE type='milestone' ORDER BY ts DESC LIMIT 10"
+
+# Full-text search across all notebook entries
+notebook search "ruled out"
 
 # All contexts (sessions) that have been explored
 notebook contexts

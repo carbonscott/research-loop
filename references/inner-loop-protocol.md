@@ -43,7 +43,7 @@ Make the change to the experiment artifact. Keep changes atomic — one idea per
 
 ```bash
 git add <modified files>
-git commit -m "<short description of what this experiment tries>"
+git commit -m "exp: <what this experiment tries>"
 ```
 
 The commit message should be descriptive enough to understand the experiment from `git log` alone. This is your audit trail.
@@ -190,9 +190,10 @@ Create K worktrees, each branching from the current session branch HEAD:
 
 ```bash
 BATCH_ID=$(logbook sql "SELECT COALESCE(MAX(batch_id), 0) + 1
-    FROM entries WHERE context='$SESSION'" | tail -1 | tr -d ' ')
+    FROM entries WHERE context='$SESSION'" | awk 'NR==3{print $1}')
 SESSION_BRANCH="research/$SESSION"
 CODEBASE="$CAMPAIGN/sessions/$SESSION/codebase"
+K=<batch size from protocol.md>
 
 for i in $(seq 1 $K); do
   git worktree add "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}" \
