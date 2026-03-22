@@ -89,7 +89,7 @@ Look for:
 - If the last several experiments were all discards, we're in a local optimum.
 - Consider: is the metric nearly converged, or are we just searching in the wrong direction?
 
-**Deferred keeps** (batch mode):
+**Deferred keeps** (bulk mode):
 - Are there `keep-deferred` experiments that showed promise but weren't the batch winner?
 - Could a deferred keep be combined with the winner? (e.g., winner changed architecture, deferred changed optimizer — try both together)
 - Should any deferred keep be revisited by rebasing on the current HEAD and re-testing?

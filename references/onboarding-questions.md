@@ -78,7 +78,7 @@ Ask:
 | Budget | Experiments/hour | Use when |
 |--------|-----------------|----------|
 | 1 min | ~50 | Quick parameter sweeps, lightweight scripts |
-| 5 min | ~10 | ML training (autoresearch default), medium pipelines |
+| 5 min | ~10 | ML training (research loop default), medium pipelines |
 | 30 min | ~2 | Heavy simulations, large data processing |
 | 1+ hour | <1 | Submit as Slurm jobs; agent manages queue, not execution |
 
@@ -88,7 +88,7 @@ Ask:
 
 ## Question 5: What should be kept or rolled back?
 
-**Why**: In autoresearch, git reset rolls back code changes on failure. But not all experiments are code changes.
+**Why**: In the research loop, git reset rolls back code changes on failure. But not all experiments are code changes.
 
 Ask:
 - **What artifact represents the experiment state?** (source code, config file, parameter file, notebook?)
