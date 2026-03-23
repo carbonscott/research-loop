@@ -188,9 +188,13 @@ notebook sql "SELECT ts, context, substr(content,1,100)
 
 # Latest insights snapshot from each prior session
 notebook sql "SELECT context, ts, substr(content,1,200)
-    FROM entries WHERE type='observation'
+    FROM entries e1 WHERE type='observation'
     AND tags LIKE '%insights-snapshot%'
-    GROUP BY context ORDER BY ts DESC LIMIT 5"
+    AND ts = (SELECT MAX(e2.ts) FROM entries e2
+              WHERE e2.type='observation'
+              AND e2.tags LIKE '%insights-snapshot%'
+              AND e2.context = e1.context)
+    ORDER BY ts DESC LIMIT 5"
 ```
 
 Use these results to pre-seed the new session's `insights.md` with prior knowledge. This prevents repeating experiments that were already ruled out in earlier sessions.

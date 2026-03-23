@@ -69,7 +69,7 @@ read logbook → extract patterns → update insights.md → record to logbook +
 
 The outer loop compresses what was learned into a bounded document (`insights.md`, never exceeding ~30 lines). This document is read before each inner loop hypothesis, giving the agent accumulated knowledge without unbounded context growth.
 
-The outer loop also writes the full insights snapshot and significant findings to the campaign **notebook** — insights snapshots, dead-ends, decisions, and milestones that future sessions can query. This is how knowledge persists across sessions.
+The outer loop also writes to the campaign **notebook** — insights snapshots, dead-ends, decisions, and milestones that future sessions can query. This is how knowledge persists across sessions.
 
 **Key insight**: Positive knowledge lives in the code/config state (kept changes survive in the working tree). Negative knowledge — what was tried and failed, and why — needs explicit compression via the outer loop and persistence via the notebook. Without it, the agent will repeat mistakes.
 
