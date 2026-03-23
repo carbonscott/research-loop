@@ -226,12 +226,12 @@ git merge --ff-only "$WINNER_BRANCH" \
 
 The outer loop writes narrative insights to the campaign notebook for cross-session persistence.
 
-### Record a distillation insight
+### Snapshot insights.md (mandatory each distillation)
 
 ```bash
 notebook emit --context "$SESSION" --type observation \
-    --tags distillation \
-    "Depth increases consistently improve BPB (3/3 kept). Activation changes all failed (4 attempts). Memory is now the binding constraint."
+    --tags distillation,insights-snapshot \
+    "$(cat insights.md)"
 ```
 
 ### Record a dead-end
@@ -266,6 +266,12 @@ notebook sql "SELECT ts, context, substr(content,1,100)
 # What milestones have been reached?
 notebook sql "SELECT ts, context, substr(content,1,100)
     FROM entries WHERE type='milestone' ORDER BY ts DESC LIMIT 10"
+
+# Latest insights snapshot from each prior session
+notebook sql "SELECT context, ts, substr(content,1,200)
+    FROM entries WHERE type='observation'
+    AND tags LIKE '%insights-snapshot%'
+    GROUP BY context ORDER BY ts DESC LIMIT 5"
 
 # Full-text search across all notebook entries
 notebook search "ruled out"

@@ -16,7 +16,7 @@ When triggered, the inner loop pauses. The agent switches to reflection mode.
 1. READ     the logbook (query via logbook sql)
 2. ANALYZE  patterns across experiments
 3. WRITE    insights.md (overwrite, not append — bounded size)
-4. RECORD   distillation to logbook + narrative to notebook
+4. RECORD   distillation to logbook + insights snapshot + narrative to notebook
 5. RESUME   inner loop with updated insights
 ```
 
@@ -185,6 +185,12 @@ notebook sql "SELECT ts, context, substr(content,1,100)
 # What milestones have been reached?
 notebook sql "SELECT ts, context, substr(content,1,100)
     FROM entries WHERE type='milestone' ORDER BY ts DESC LIMIT 10"
+
+# Latest insights snapshot from each prior session
+notebook sql "SELECT context, ts, substr(content,1,200)
+    FROM entries WHERE type='observation'
+    AND tags LIKE '%insights-snapshot%'
+    GROUP BY context ORDER BY ts DESC LIMIT 5"
 ```
 
 Use these results to pre-seed the new session's `insights.md` with prior knowledge. This prevents repeating experiments that were already ruled out in earlier sessions.
