@@ -136,7 +136,16 @@ logbook emit --context "$SESSION" --type distillation \
     "After 10 experiments: depth helps (3/3 kept), activation changes all failed (0/4). Best val_bpb=0.91 vs baseline 1.012."
 ```
 
-**Also** record significant findings to the campaign notebook (narrative record, visible to future sessions):
+**Also** record the full insights snapshot and significant findings to the campaign notebook (narrative record, visible to future sessions):
+
+```bash
+# Always: snapshot the full insights.md for cross-session history
+notebook emit --context "$SESSION" --type observation \
+    --tags distillation,insights-snapshot \
+    "$(cat insights.md)"
+```
+
+The insights snapshot above is mandatory every distillation — it preserves the full evolution of the agent's understanding. The remaining notebook entry types below are selective — write what is significant for cross-session knowledge: dead-ends (prevent repeating), decisions (explain direction), milestones (track progress).
 
 ```bash
 # Record dead-ends so future sessions don't repeat them
@@ -154,7 +163,7 @@ notebook emit --context "$SESSION" --type milestone \
     "Best val_bpb=0.91, 10% improvement over baseline after 10 experiments."
 ```
 
-Not every distillation needs all notebook entry types. Write what is significant for cross-session knowledge: dead-ends (prevent repeating), decisions (explain direction), milestones (track progress).
+Not every distillation needs all of these selective entry types — write what is significant.
 
 ### 5. Resume the Inner Loop
 
