@@ -455,10 +455,10 @@ After generating the prompt file, launch the research loop by invoking the lisa-
     --dim cycle 1 2 3 4 5 \
     --dim mode explore distill \
     --dim retry 0 1 2 \
-    --max-iterations $((N * 30))
+    --max-iterations 150
 ```
 
-Adjust the `--dim cycle` values to match the number of cycles from onboarding (e.g., 3 cycles = `--dim cycle 1 2 3`). Adjust `--dim retry` to match the retry budget (e.g., 0 retries = `--dim retry 0`, 2 retries = `--dim retry 0 1 2`). The `--max-iterations` cap should be generous: N * 30 allows ample headroom for explore iterations, distillation, and retries per cycle.
+Adjust `--dim cycle` to match the number of cycles from onboarding (e.g., 3 cycles = `--dim cycle 1 2 3`). Adjust `--dim retry` to match the retry budget (e.g., 0 retries = `--dim retry 0`, 2 retries = `--dim retry 0 1 2`). Adjust `--max-iterations` to N × 30 (the example uses 150 for 5 cycles; use 90 for 3 cycles, etc.) — this allows ample headroom for explore iterations, distillation, and retries per cycle.
 
 After invocation, the agent is inside the lisa-wiggum loop. The stop hook:
 1. Shows the cursor position in the system message (e.g., `Cursor: cycle=1, mode=explore, retry=0`)
@@ -522,7 +522,7 @@ Generate this from the onboarding answers. It is the session's specific loop def
 - **Experiments per explore phase**: ~<target from onboarding Q6>
 - **Retry budget**: <M> (encoded as --dim retry 0..<M>)
 - **Cursor dimensions**: --dim cycle 1..<N> --dim mode explore distill --dim retry 0..<M>
-- **Max iterations**: $((N * 30))
+- **Max iterations**: <N × 30>
 
 ## Session Mode
 - **Mode**: <sequential | bulk>

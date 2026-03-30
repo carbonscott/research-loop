@@ -52,7 +52,7 @@ The cursor walks: `cycle=1, mode=explore, retry=0` → `cycle=1, mode=distill, r
 - `PHASE COMPLETE` at `mode=explore` → advances mode (explore→distill)
 - `PHASE COMPLETE` at `mode=distill` → mode overflows, advances cycle
 - `PHASE FAILED` at `mode=explore` → advances retry; if retries exhausted, overflows to distill
-- No signal → cursor stays (normal within explore)
+- No signal → cursor stays
 
 ## Process
 

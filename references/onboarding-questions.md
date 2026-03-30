@@ -190,7 +190,7 @@ Once all questions are answered, summarize back to the user:
 **Versioning**: [what's committed, how rollback works]
 **Cycles**: [N explore-distill cycles, ~M experiments per explore phase]
 **Session mode**: [sequential (K=1) / bulk (K=<n>)]
-**Retry budget**: [M retries per crash, or none]
+**Retry budget**: [M retries per explore phase, or none]
 **Cursor**: --dim cycle 1..<N> --dim mode explore distill --dim retry 0..<M>
 ```
 
