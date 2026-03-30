@@ -1,34 +1,32 @@
-# Outer Loop Protocol
+# Outer Loop Protocol (Distill Phase)
+
+This protocol applies when the system message shows `mode=distill`. The cursor position (e.g., `Cursor: cycle=2, mode=distill`) tells you which round of distillation you are in.
 
 The outer loop's job is to **maximize knowledge extracted per unit information**. It compresses N experiments worth of data into a bounded summary that guides the next round.
 
 ## When It Triggers
 
-The outer loop runs when either condition is met (whichever comes first):
-- **Cadence trigger**: Every N experiments (default: 10)
-- **Plateau trigger**: M consecutive discards (default: 5)
-
-When triggered, the inner loop pauses. The agent switches to reflection mode.
+The outer loop runs when the cursor shows `mode=distill`. This happens mechanically after the agent signals PHASE COMPLETE during an explore phase. No self-detection is needed — the system message tells you it is distillation time.
 
 ## The Distillation Cycle
 
 ```
-1. READ     the logbook (query via logbook sql)
+1. READ     the store (query via store sql)
 2. ANALYZE  patterns across experiments
 3. WRITE    insights.md (overwrite, not append — bounded size)
-4. RECORD   distillation to logbook + insights snapshot + narrative to notebook
-5. RESUME   inner loop with updated insights
+4. RECORD   distillation + insights snapshot + narrative entries to store
+5. SIGNAL   PHASE COMPLETE to advance cursor to next cycle's explore phase
 ```
 
 ## Step Details
 
 ### 1. Read the Logbook
 
-Query the logbook for all experiments since the last distillation (or all experiments if this is the first distillation):
+Query the store for all experiments since the last distillation (or all experiments if this is the first distillation):
 
 ```bash
 # All experiments since last distillation
-logbook sql "SELECT ts, change_type, status, metrics, substr(content,1,80)
+store sql "SELECT ts, change_type, status, metrics, substr(content,1,80)
     FROM entries WHERE context='$SESSION' AND type IN ('experiment','baseline')
     AND ts > COALESCE(
         (SELECT MAX(ts) FROM entries WHERE type='distillation' AND context='$SESSION'),
@@ -36,7 +34,7 @@ logbook sql "SELECT ts, change_type, status, metrics, substr(content,1,80)
     ORDER BY ts"
 
 # Summary statistics
-logbook sql "SELECT status, COUNT(*) as count, change_type,
+store sql "SELECT status, COUNT(*) as count, change_type,
         GROUP_CONCAT(substr(content,1,40), '; ') as descriptions
     FROM entries WHERE context='$SESSION' AND type='experiment'
     AND ts > COALESCE(
@@ -51,18 +49,18 @@ logbook sql "SELECT status, COUNT(*) as count, change_type,
 
 ```bash
 # Keep rate per batch (are batches getting better over time?)
-logbook sql "SELECT batch_id, COUNT(*) as n,
+store sql "SELECT batch_id, COUNT(*) as n,
         SUM(status IN ('keep', 'keep-deferred')) as kept,
         SUM(status = 'discard') as discarded
     FROM entries WHERE context='$SESSION' AND batch_id IS NOT NULL
     GROUP BY batch_id"
 
 # Were deferred keeps worth revisiting?
-logbook sql "SELECT ts, substr(content,1,80), metrics
+store sql "SELECT ts, substr(content,1,80), metrics
     FROM entries WHERE context='$SESSION' AND status='keep-deferred'"
 
 # Batch diversity check (flag batches that only explored one category)
-logbook sql "SELECT batch_id, COUNT(DISTINCT change_type) as categories, COUNT(*) as n
+store sql "SELECT batch_id, COUNT(DISTINCT change_type) as categories, COUNT(*) as n
     FROM entries WHERE context='$SESSION' AND batch_id IS NOT NULL
     GROUP BY batch_id HAVING categories < 2"
 ```
@@ -128,66 +126,68 @@ Template:
 
 ### 4. Record to Logbook AND Notebook
 
-**Always** record the distillation to the logbook (operational record):
+**Always** record the distillation to the store (operational record):
 
 ```bash
-logbook emit --context "$SESSION" --type distillation \
+store emit --context "$SESSION" --type distillation \
     --strategy "Focus on depth increases; stop exploring activation functions" \
     "After 10 experiments: depth helps (3/3 kept), activation changes all failed (0/4). Best val_bpb=0.91 vs baseline 1.012."
 ```
 
-**Also** record the full insights snapshot and significant findings to the campaign notebook (narrative record, visible to future sessions):
+**Also** record the full insights snapshot and significant findings to the store (narrative entries, visible to future sessions):
 
 ```bash
 # Always: snapshot the full insights.md for cross-session history
-notebook emit --context "$SESSION" --type observation \
+store emit --context "$SESSION" --type observation \
     --tags distillation,insights-snapshot \
     "$(cat insights.md)"
 ```
 
-The insights snapshot above is mandatory every distillation — it preserves the full evolution of the agent's understanding. The remaining notebook entry types below are selective — write what is significant for cross-session knowledge: dead-ends (prevent repeating), decisions (explain direction), milestones (track progress).
+The insights snapshot above is mandatory every distillation — it preserves the full evolution of the agent's understanding. The remaining narrative entry types below are selective — write what is significant for cross-session knowledge: dead-ends (prevent repeating), decisions (explain direction), milestones (track progress).
 
 ```bash
 # Record dead-ends so future sessions don't repeat them
-notebook emit --context "$SESSION" --type dead-end \
+store emit --context "$SESSION" --type dead-end \
     --tags activation,architecture \
     "Activation function changes (GeLU, SiLU, Swish) tried 4 times with no improvement. The MLP is not the bottleneck."
 
 # Record key decisions
-notebook emit --context "$SESSION" --type decision \
+store emit --context "$SESSION" --type decision \
     --tags strategy \
     "Focusing on depth increases. Architecture gains are consistent; memory optimization needed to unlock depth 12."
 
 # Record milestones
-notebook emit --context "$SESSION" --type milestone \
+store emit --context "$SESSION" --type milestone \
     "Best val_bpb=0.91, 10% improvement over baseline after 10 experiments."
 ```
 
 Not every distillation needs all of these selective entry types — write what is significant.
 
-### 5. Resume the Inner Loop
+### 5. Signal Completion
 
-Return to the inner loop. The next hypothesis should be informed by the freshly written `insights.md`. The agent reads it at step 1 of the inner loop cycle.
+Include **PHASE COMPLETE** in your response. The cursor advances to the next cycle's explore phase (e.g., `cycle=2, mode=explore` → `cycle=3, mode=explore`). The next hypothesis will be informed by the freshly written `insights.md`.
+
+**Do not signal PHASE FAILED during distillation.** If something goes wrong (empty store, query error), fix it and complete the distillation within this iteration. PHASE FAILED would advance the cursor past distillation, losing the compression step.
 
 ## Cross-Session Bootstrap
 
-When starting a new session within the same campaign, the agent should query the notebook before running the first experiment:
+When starting a new session within the same campaign, the agent should query the store before running the first experiment:
 
 ```bash
 # What dead-ends exist from prior sessions?
-notebook sql "SELECT ts, context, substr(content,1,100)
+store sql "SELECT ts, context, substr(content,1,100)
     FROM entries WHERE type='dead-end' ORDER BY ts DESC LIMIT 20"
 
 # What strategic decisions have been made?
-notebook sql "SELECT ts, context, substr(content,1,100)
+store sql "SELECT ts, context, substr(content,1,100)
     FROM entries WHERE type='decision' ORDER BY ts DESC LIMIT 20"
 
 # What milestones have been reached?
-notebook sql "SELECT ts, context, substr(content,1,100)
+store sql "SELECT ts, context, substr(content,1,100)
     FROM entries WHERE type='milestone' ORDER BY ts DESC LIMIT 10"
 
 # Latest insights snapshot from each prior session
-notebook sql "SELECT context, ts, substr(content,1,200)
+store sql "SELECT context, ts, substr(content,1,200)
     FROM entries e1 WHERE type='observation'
     AND tags LIKE '%insights-snapshot%'
     AND ts = (SELECT MAX(e2.ts) FROM entries e2

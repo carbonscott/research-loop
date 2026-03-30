@@ -1,6 +1,6 @@
 # Onboarding: Defining Your Research Loop
 
-Each campaign may have multiple sessions. The onboarding questions below define the protocol for a single session. If this is a new session within an existing campaign, review the campaign notebook for prior dead-ends and decisions before onboarding.
+Each campaign may have multiple sessions. The onboarding questions below define the protocol for a single session. If this is a new session within an existing campaign, review the campaign store for prior dead-ends and decisions before onboarding.
 
 Ask these questions before setting up infrastructure. Each answer shapes the loop design. Do not assume defaults — ask explicitly and listen.
 
@@ -82,7 +82,7 @@ Ask:
 | 30 min | ~2 | Heavy simulations, large data processing |
 | 1+ hour | <1 | Submit as Slurm jobs; agent manages queue, not execution |
 
-**How this shapes the loop**: Determines inner loop cadence, outer loop trigger (every N experiments), and whether the agent waits or submits-and-polls.
+**How this shapes the loop**: Determines inner loop cadence, how many experiments fit per explore phase, and whether the agent waits or submits-and-polls.
 
 ---
 
@@ -107,24 +107,27 @@ Ask:
 
 ---
 
-## Question 6: How often should the agent pause to reflect?
+## Question 6: How many explore-distill cycles?
 
-**Why**: The outer loop (distillation) frequency balances exploration breadth against reflection depth.
+**Why**: The research loop alternates between exploration (running experiments) and distillation (compressing results into insights). Lisa-wiggum's cursor enforces this rhythm mechanically — the agent cannot skip distillation. This question determines how many full cycles to run.
 
 Ask:
-- **After how many experiments should the agent pause to distill?** (suggest 8-12 as a starting point)
-- **Should reflection also trigger on plateau?** (e.g., 5 consecutive discards = forced reflection)
-- **Who reads the insights — just the agent, or humans too?**
+- **How many explore-distill cycles do you want?** (suggest 5 as a starting point)
+- **Within each explore phase, roughly how many experiments before distilling?** (suggest 8-12; this is guidance, not a hard limit — the agent decides when to signal readiness)
 
-| Trigger | Good for |
-|---------|----------|
-| Every N experiments (e.g., 10) | Steady cadence, predictable |
-| On plateau (e.g., 5 consecutive discards) | Adaptive, avoids wasting experiments when stuck |
-| Both (whichever comes first) | Recommended default |
+| Cycles | Total experiments (at ~10/cycle) | Good for |
+|--------|----------------------------------|----------|
+| 3 | ~30 | Quick exploration, short session |
+| 5 (default) | ~50 | Standard research campaign |
+| 10 | ~100 | Deep exploration, overnight runs |
 
-**Suggested default**: Distill every 10 experiments OR after 5 consecutive discards, whichever comes first.
+**Within each explore phase**, the agent still uses heuristics to decide when to stop exploring and signal readiness to distill:
+- After roughly N experiments (the per-cycle target above)
+- On plateau (e.g., 5 consecutive discards — a signal that distillation is needed now, not after N more experiments)
 
-**How this shapes the loop**: Sets the outer loop trigger and determines how often `insights.md` is rewritten.
+**Suggested default**: 5 cycles, ~10 experiments per explore phase.
+
+**How this shapes the loop**: Maps to `--dim cycle 1 2 3 4 5`. Combined with `--dim mode explore distill`, this creates the full cursor: 5 cycles × 2 modes = 10 cursor cells. The agent decides how many experiments to run within each explore cell.
 
 ---
 
@@ -145,9 +148,31 @@ Ask:
 
 **If K=1**: Sequential mode. The agent runs one experiment at a time on the session branch.
 
-**If K>1**: Bulk mode. The inner loop generates K diverse hypotheses per batch, runs them in parallel via git worktrees, evaluates all K, merges the best winner into the session branch, and logs everything to the campaign logbook with a shared `batch_id`.
+**If K>1**: Bulk mode. The inner loop generates K diverse hypotheses per batch, runs them in parallel via git worktrees, evaluates all K, merges the best winner into the session branch, and logs everything to the campaign store with a shared `batch_id`.
 
-**How this shapes the loop**: Determines whether the inner loop runs sequentially or in batches. The outer loop is unaffected — it triggers after N total experiments regardless of how they were produced.
+**How this shapes the loop**: Determines whether the inner loop runs sequentially or in batches. The cursor structure is unaffected — both modes operate within `mode=explore` cells.
+
+---
+
+## Question 8: How many retries on failure?
+
+**Why**: Some experiments crash (OOM, syntax error, incompatible change). The retry budget determines how many times the agent should attempt to fix and re-run a failing experiment before abandoning it and moving on.
+
+Ask:
+- **When an experiment crashes, how many fix-and-retry attempts before moving on?** (suggest 2-3)
+- **What counts as a "fixable" crash?** (typo, import error, minor OOM → fixable; fundamental architecture incompatibility → not fixable)
+
+| Retry budget | Good for |
+|-------------|----------|
+| 0 (none) | Fast exploration; crashes are just data points, move on immediately |
+| 2 (default) | Standard; gives the agent a chance to fix trivial errors |
+| 3-5 | Complex experiments where crashes are often fixable with small adjustments |
+
+**This is prompt-level guidance, not a cursor dimension.** The retry budget tells the agent how persistent to be within a single experiment attempt. It does not affect the cursor structure.
+
+**Suggested default**: 2 retries per crash.
+
+**How this shapes the loop**: Embedded in the prompt template as guidance. The agent counts retries per experiment and abandons after M attempts.
 
 ---
 
@@ -163,8 +188,10 @@ Once all questions are answered, summarize back to the user:
 **Keep/discard**: [comparison logic + simplicity criterion]
 **Budget**: [time per experiment, total session]
 **Versioning**: [what's committed, how rollback works]
-**Distillation**: [every N experiments / on plateau / both]
+**Cycles**: [N explore-distill cycles, ~M experiments per explore phase]
 **Session mode**: [sequential (K=1) / bulk (K=<n>)]
+**Retry budget**: [M retries per crash, or none]
+**Cursor**: --dim cycle 1..<N> --dim mode explore distill
 ```
 
 Get explicit confirmation before proceeding to scaffolding.
