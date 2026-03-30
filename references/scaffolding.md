@@ -224,7 +224,7 @@ CODEBASE="$CAMPAIGN/sessions/$SESSION/codebase"
 K=<batch size from protocol.md>
 
 for i in $(seq 1 $K); do
-  git -C "$CODEBASE" worktree add "worktrees/exp-${BATCH_ID}-${i}" \
+  git -C "$CODEBASE" worktree add "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}" \
       -b "exp/${SESSION}/${BATCH_ID}-${i}" "$SESSION_BRANCH"
 done
 ```
@@ -235,7 +235,7 @@ done
 
 ```bash
 for i in $(seq 1 $K); do
-  git worktree remove "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}"
+  git worktree remove --force "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}"
   git branch -D "exp/${SESSION}/${BATCH_ID}-${i}"
 done
 ```

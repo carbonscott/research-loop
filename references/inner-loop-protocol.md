@@ -211,7 +211,7 @@ CODEBASE="$CAMPAIGN/sessions/$SESSION/codebase"
 K=<batch size from protocol.md>
 
 for i in $(seq 1 $K); do
-  git -C "$CODEBASE" worktree add "worktrees/exp-${BATCH_ID}-${i}" \
+  git -C "$CODEBASE" worktree add "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}" \
     -b "exp/${SESSION}/${BATCH_ID}-${i}" "$SESSION_BRANCH"
 done
 ```
@@ -249,7 +249,7 @@ wait
 
 For Slurm: poll `squeue` until all batch jobs complete. For background processes: `wait` blocks until all finish.
 
-#### 9–10. Evaluate, Determine Winner, Then Log All K
+#### 8–10. Evaluate, Determine Winner, Then Log All K
 
 **Important**: The store is append-only — there is no UPDATE. Evaluate all K experiments and determine the batch winner BEFORE logging any of them. Then emit all K entries with their final status in one pass.
 
@@ -284,7 +284,7 @@ git merge --ff-only "$WINNER_BRANCH" \
 **After merging**, clean up all worktrees:
 ```bash
 for i in $(seq 1 $K); do
-  git worktree remove "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}"
+  git worktree remove --force "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}"
   git branch -D "exp/${SESSION}/${BATCH_ID}-${i}"
 done
 ```
