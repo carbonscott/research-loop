@@ -32,10 +32,10 @@ The `context` field in every store entry scopes data to a session. Cross-session
 The explore/distill rhythm is enforced mechanically by lisa-wiggum's cursor model. The nested loop flattens into cursor dimensions:
 
 ```
---dim cycle 1 2 3 4 5 --dim mode explore distill
+--dim cycle 1 2 3 4 5 --dim mode explore distill --dim retry 0 1 2
 ```
 
-The cursor walks: `cycle=1, mode=explore` → `cycle=1, mode=distill` → `cycle=2, mode=explore` → ... → `cycle=5, mode=distill` → DONE.
+The cursor walks: `cycle=1, mode=explore, retry=0` → `cycle=1, mode=distill, retry=0` → `cycle=2, mode=explore, retry=0` → ... → `cycle=5, mode=distill, retry=0` → DONE. The `retry` dimension only advances on PHASE FAILED (crash recovery); normal progression moves through cycle/mode.
 
 **What the cursor guarantees:**
 - Distillation **cannot be skipped**. The agent must complete `mode=distill` before the next cycle begins.
@@ -49,9 +49,10 @@ The cursor walks: `cycle=1, mode=explore` → `cycle=1, mode=distill` → `cycle
 - Keep/discard decisions based on metrics
 
 **Signals:**
-- `PHASE COMPLETE` at `mode=explore` → ready to distill
-- `PHASE COMPLETE` at `mode=distill` → distillation done, advance to next cycle
-- No signal → still working at current position (normal within explore)
+- `PHASE COMPLETE` at `mode=explore` → advances mode (explore→distill)
+- `PHASE COMPLETE` at `mode=distill` → mode overflows, advances cycle
+- `PHASE FAILED` at `mode=explore` → advances retry; if retries exhausted, overflows to distill
+- No signal → cursor stays (normal within explore)
 
 ## Process
 

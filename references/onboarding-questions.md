@@ -127,7 +127,7 @@ Ask:
 
 **Suggested default**: 5 cycles, ~10 experiments per explore phase.
 
-**How this shapes the loop**: Maps to `--dim cycle 1 2 3 4 5`. Combined with `--dim mode explore distill`, this creates the full cursor: 5 cycles × 2 modes = 10 cursor cells. The agent decides how many experiments to run within each explore cell.
+**How this shapes the loop**: Maps to `--dim cycle 1 2 3 4 5`. Combined with `--dim mode explore distill` and `--dim retry 0..<M>` (from Q8), this creates the full cursor. The agent decides how many experiments to run within each explore cell.
 
 ---
 
@@ -154,25 +154,25 @@ Ask:
 
 ---
 
-## Question 8: How many retries on failure?
+## Question 8: How many retries if an explore phase fails?
 
-**Why**: Some experiments crash (OOM, syntax error, incompatible change). The retry budget determines how many times the agent should attempt to fix and re-run a failing experiment before abandoning it and moving on.
+**Why**: Sometimes an entire explore phase goes off the rails — the codebase enters a broken state, persistent OOM blocks all experiments, or a bad hypothesis corrupts the setup. The retry budget gives the agent additional attempts at the same cycle's exploration before forcing distillation.
 
 Ask:
-- **When an experiment crashes, how many fix-and-retry attempts before moving on?** (suggest 2-3)
-- **What counts as a "fixable" crash?** (typo, import error, minor OOM → fixable; fundamental architecture incompatibility → not fixable)
+- **If the agent finds itself unable to run any experiments (codebase broken, environment unrecoverable), how many fresh explore attempts before forcing distillation?** (suggest 2)
+- Note: individual experiment crashes (one OOM, one bad architecture) are handled within the explore phase — the agent logs the crash and moves to the next hypothesis. Retries are for when the *entire* phase is unrecoverable.
 
 | Retry budget | Good for |
 |-------------|----------|
-| 0 (none) | Fast exploration; crashes are just data points, move on immediately |
-| 2 (default) | Standard; gives the agent a chance to fix trivial errors |
-| 3-5 | Complex experiments where crashes are often fixable with small adjustments |
+| 0 (none) | PHASE FAILED immediately forces distillation; robust environments only |
+| 2 (default) | Standard; gives the agent a couple of fresh attempts to recover the phase |
+| 3-5 | Fragile environments where phase-level failures are common |
 
-**This is prompt-level guidance, not a cursor dimension.** The retry budget tells the agent how persistent to be within a single experiment attempt. It does not affect the cursor structure.
+**This maps to a cursor dimension.** The retry budget is encoded as `--dim retry 0..<M>` (e.g., 2 retries → `--dim retry 0 1 2`). The stop hook advances the retry dimension on PHASE FAILED. After exhausting all retries, overflow advances `mode` — so even total failure eventually reaches distillation.
 
-**Suggested default**: 2 retries per crash.
+**Suggested default**: 2 retries (→ `--dim retry 0 1 2`). With 0 retries, use `--dim retry 0` (1 value; PHASE FAILED immediately overflows to advance mode).
 
-**How this shapes the loop**: Embedded in the prompt template as guidance. The agent counts retries per experiment and abandons after M attempts.
+**How this shapes the loop**: Encoded in the cursor structure. The agent signals PHASE FAILED when the entire explore phase is unrecoverable (not for individual crashes); the stop hook advances the retry dimension automatically.
 
 ---
 
@@ -191,7 +191,7 @@ Once all questions are answered, summarize back to the user:
 **Cycles**: [N explore-distill cycles, ~M experiments per explore phase]
 **Session mode**: [sequential (K=1) / bulk (K=<n>)]
 **Retry budget**: [M retries per crash, or none]
-**Cursor**: --dim cycle 1..<N> --dim mode explore distill
+**Cursor**: --dim cycle 1..<N> --dim mode explore distill --dim retry 0..<M>
 ```
 
 Get explicit confirmation before proceeding to scaffolding.

@@ -1,6 +1,6 @@
 # Outer Loop Protocol (Distill Phase)
 
-This protocol applies when the system message shows `mode=distill`. The cursor position (e.g., `Cursor: cycle=2, mode=distill`) tells you which round of distillation you are in.
+This protocol applies when the system message shows `mode=distill`. The cursor position (e.g., `Cursor: cycle=2, mode=distill, retry=0`) tells you which round of distillation you are in.
 
 The outer loop's job is to **maximize knowledge extracted per unit information**. It compresses N experiments worth of data into a bounded summary that guides the next round.
 
@@ -20,7 +20,7 @@ The outer loop runs when the cursor shows `mode=distill`. This happens mechanica
 
 ## Step Details
 
-### 1. Read the Logbook
+### 1. Read the Store
 
 Query the store for all experiments since the last distillation (or all experiments if this is the first distillation):
 
@@ -124,7 +124,7 @@ Template:
 - [Anything uncertain that could be tested]
 ```
 
-### 4. Record to Logbook AND Notebook
+### 4. Record to Store
 
 **Always** record the distillation to the store (operational record):
 
@@ -165,9 +165,9 @@ Not every distillation needs all of these selective entry types — write what i
 
 ### 5. Signal Completion
 
-Include **PHASE COMPLETE** in your response. The cursor advances to the next cycle's explore phase (e.g., `cycle=2, mode=explore` → `cycle=3, mode=explore`). The next hypothesis will be informed by the freshly written `insights.md`.
+Include **PHASE COMPLETE** in your response. The cursor advances to the next cycle's explore phase (e.g., `cycle=2, mode=distill` → `cycle=3, mode=explore, retry=0`). The next hypothesis will be informed by the freshly written `insights.md`.
 
-**Do not signal PHASE FAILED during distillation.** If something goes wrong (empty store, query error), fix it and complete the distillation within this iteration. PHASE FAILED would advance the cursor past distillation, losing the compression step.
+**Do not signal PHASE FAILED during distillation.** If something goes wrong (empty store, query error), fix it and complete the distillation within this iteration. If retries exhaust while at mode=distill, overflow skips to the next cycle's explore phase — losing the compression step entirely.
 
 ## Cross-Session Bootstrap
 

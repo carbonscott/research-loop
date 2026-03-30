@@ -1,6 +1,6 @@
 # Inner Loop Protocol (Explore Phase)
 
-This protocol applies when the system message shows `mode=explore`. The cursor position (e.g., `Cursor: cycle=2, mode=explore`) tells you which round of exploration you are in.
+This protocol applies when the system message shows `mode=explore`. The cursor position (e.g., `Cursor: cycle=2, mode=explore, retry=0`) tells you which round of exploration you are in. `retry=0` is the first attempt; `retry=1` means you are on a retry after a prior failed phase.
 
 The inner loop's job is to **maximize information gathered per unit compute**. Each cycle is one experiment.
 
@@ -28,7 +28,7 @@ Before each hypothesis, read `insights.md` if it exists. This is the compressed 
 - What's been ruled out
 - The current strategy for the next batch
 
-Your cursor position is in the system message (e.g., `Cursor: cycle=2, mode=explore`). If this is cycle 2+, insights.md was updated during the previous cycle's distillation and reflects accumulated knowledge.
+Your cursor position is in the system message (e.g., `Cursor: cycle=2, mode=explore, retry=0`). If `retry > 0`, a prior explore phase failed and this is a fresh attempt. If this is cycle 2+, insights.md was updated during the previous cycle's distillation and reflects accumulated knowledge.
 
 On the very first experiment (cycle 1, first iteration), there are no insights yet. Run the baseline as-is to establish the reference point.
 
@@ -108,11 +108,11 @@ IF primary didn't improve → DISCARD
 - The experiment is still logged — discarded experiments carry information.
 
 **On CRASH:**
-- Read the error. If it's a trivial fix (typo, import), fix and re-run.
-- If the idea is fundamentally broken (OOM, incompatible architecture), log as crash and move on.
-- Don't spend more than 2-3 attempts fixing a crash before abandoning.
+- Read the error. If it's a trivial fix (typo, import), fix and re-run within this iteration.
+- If the idea is fundamentally broken (OOM, incompatible architecture), log as crash and move to the next hypothesis. A single crashed experiment does not warrant PHASE FAILED.
+- Only signal PHASE FAILED if the codebase itself is broken such that no further experiments can proceed this explore phase.
 
-### 8. Log to Logbook
+### 8. Log to Store
 
 Every experiment gets logged, regardless of outcome:
 
@@ -148,7 +148,7 @@ The cursor manages the explore/distill rhythm. Your job is to signal when you ar
 
 **No signal** — End your response without any signal keyword. The cursor stays at the same position. The next iteration continues exploration at the same cycle and mode. This is the normal case within an explore phase: one experiment per iteration, no signal until you are ready to distill.
 
-**PHASE FAILED** — Use sparingly. Include this only if the entire explore phase is unrecoverable (e.g., codebase is broken beyond repair). This advances `mode` to `distill`, so the agent can at least record what happened. For individual experiment failures (crashes, OOM), just log them and move to the next hypothesis — do not signal PHASE FAILED.
+**PHASE FAILED** — Use sparingly. Include this only if the current explore attempt is unrecoverable (e.g., codebase is broken beyond repair, persistent OOM). This advances the `retry` dimension (e.g., retry=0→1). If retries remain, you get another attempt at the same (cycle, mode) position. If retries are exhausted, overflow advances `mode` to distill — so the agent can at least record what happened. For individual experiment failures that you can work around, just log them and move to the next hypothesis — do not signal PHASE FAILED.
 
 Do NOT ask the user "should I continue?" — the loop is autonomous. The only pause is for distillation, and then exploration resumes.
 

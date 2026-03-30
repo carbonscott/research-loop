@@ -357,7 +357,11 @@ Run experiments. Each iteration = one experiment cycle.
 7. **Decide**:
    - Keep if metric improved beyond threshold → commit stays, new baseline
    - Discard if worse → `git reset --hard HEAD~1`
-   - On crash: retry up to <M> times, then abandon and move on
+   - On crash: if fixable (typo, import), fix and re-run within this iteration.
+     If fundamentally broken (OOM, incompatible architecture), log as crash and move to
+     the next hypothesis. A single crashed experiment does not warrant PHASE FAILED.
+     Only signal PHASE FAILED if the entire phase is unrecoverable and no further
+     experiments can proceed.
 8. **Log** to store:
    ```bash
    store emit --context "<session>" --type experiment \
@@ -429,7 +433,12 @@ Compress what was learned. One iteration = one complete distillation.
    next cycle's explore phase.
 
 **Do not signal PHASE FAILED during distillation.** If something goes wrong (empty store,
-query error), fix it and complete the distillation within this iteration.
+query error), fix it and complete the distillation within this iteration. If retries
+exhaust at mode=distill, overflow skips to the next cycle's explore — losing the
+compression step entirely.
+
+**Early termination**: If all research goals are met before the cursor exhausts all cycles,
+output `<promise>DONE</promise>` to exit the loop immediately.
 ```
 
 Adapt the template above with concrete values from the onboarding answers and protocol.md. Replace all `<placeholders>` with actual paths, commands, metrics, and thresholds.
@@ -445,13 +454,14 @@ After generating the prompt file, launch the research loop by invoking the lisa-
     --context "research/$SESSION" \
     --dim cycle 1 2 3 4 5 \
     --dim mode explore distill \
-    --max-iterations <cycles * 20>
+    --dim retry 0 1 2 \
+    --max-iterations $((N * 30))
 ```
 
-Adjust the `--dim cycle` values to match the number of cycles from onboarding (e.g., 3 cycles = `--dim cycle 1 2 3`). The `--max-iterations` cap should be generous: cycles * 20 allows ~18 explore iterations plus 1 distill iteration per cycle, with headroom.
+Adjust the `--dim cycle` values to match the number of cycles from onboarding (e.g., 3 cycles = `--dim cycle 1 2 3`). Adjust `--dim retry` to match the retry budget (e.g., 0 retries = `--dim retry 0`, 2 retries = `--dim retry 0 1 2`). The `--max-iterations` cap should be generous: N * 30 allows ample headroom for explore iterations, distillation, and retries per cycle.
 
 After invocation, the agent is inside the lisa-wiggum loop. The stop hook:
-1. Shows the cursor position in the system message (e.g., `Cursor: cycle=1, mode=explore`)
+1. Shows the cursor position in the system message (e.g., `Cursor: cycle=1, mode=explore, retry=0`)
 2. Detects PHASE COMPLETE / PHASE FAILED signals in the agent's response
 3. Advances the cursor accordingly
 4. Re-injects the prompt with the updated system message
@@ -505,13 +515,14 @@ Generate this from the onboarding answers. It is the session's specific loop def
 - **Discard if**: <inverse>
 - **On crash**: <fix trivial issues, abandon fundamental ones>
 - **Rollback method**: <from onboarding Q5>
-- **Retry budget**: <M retries per crash, from onboarding Q8>
+- **Retry budget**: <M retries per explore phase, from onboarding Q8>
 
 ## Cursor
 - **Cycles**: <N from onboarding Q6>
 - **Experiments per explore phase**: ~<target from onboarding Q6>
-- **Cursor dimensions**: --dim cycle 1..<N> --dim mode explore distill
-- **Max iterations**: <cycles * 20>
+- **Retry budget**: <M> (encoded as --dim retry 0..<M>)
+- **Cursor dimensions**: --dim cycle 1..<N> --dim mode explore distill --dim retry 0..<M>
+- **Max iterations**: $((N * 30))
 
 ## Session Mode
 - **Mode**: <sequential | bulk>
