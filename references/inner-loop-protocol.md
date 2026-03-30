@@ -1,6 +1,8 @@
-# Inner Loop Protocol
+# Inner Loop Protocol (Explore Phase)
 
-The inner loop's job is to **maximize information gathered per unit compute**. Each cycle is one experiment.
+This protocol applies when the system message shows `mode=explore`. The cursor position (e.g., `Cursor: cycle=2, mode=explore, retry=0`) tells you which round of exploration you are in. `retry=0` is the first attempt; `retry=1` means you are on a retry after a prior failed phase.
+
+The inner loop's job is to **maximize information gathered per unit compute**. Each iteration of the cycle below is one experiment.
 
 ## The Cycle
 
@@ -12,7 +14,7 @@ The inner loop's job is to **maximize information gathered per unit compute**. E
 5. RUN     the experiment (redirect output to log file)
 6. EVALUATE  extract metrics from output
 7. DECIDE  keep or discard (based on comparison function)
-8. LOG     record to logbook (regardless of outcome)
+8. LOG     record to store (regardless of outcome)
 9. REPEAT  go to step 1
 ```
 
@@ -20,13 +22,15 @@ The inner loop's job is to **maximize information gathered per unit compute**. E
 
 ### 1. Read insights
 
-Before each hypothesis, read `insights.md` if it exists. This is the compressed knowledge from the outer loop. It tells you:
+Before each hypothesis, read `insights.md` if it exists. This is the compressed knowledge from the last distillation phase. It tells you:
 - What categories of changes have been tried
 - What worked and the agent's theory of why
 - What's been ruled out
 - The current strategy for the next batch
 
-On the very first experiment, there are no insights yet. Run the baseline as-is to establish the reference point.
+Your cursor position is in the system message (e.g., `Cursor: cycle=2, mode=explore, retry=0`). If `retry > 0`, a prior explore phase failed and this is a fresh attempt. If this is cycle 2+, insights.md was updated during the previous cycle's distillation and reflects accumulated knowledge.
+
+On the very first experiment (cycle 1, first iteration), there are no insights yet. Run the baseline as-is to establish the reference point.
 
 ### 2. Hypothesize
 
@@ -104,16 +108,16 @@ IF primary didn't improve → DISCARD
 - The experiment is still logged — discarded experiments carry information.
 
 **On CRASH:**
-- Read the error. If it's a trivial fix (typo, import), fix and re-run.
-- If the idea is fundamentally broken (OOM, incompatible architecture), log as crash and move on.
-- Don't spend more than 2-3 attempts fixing a crash before abandoning.
+- Read the error. If it's a trivial fix (typo, import), fix and re-run within this iteration.
+- If the idea is fundamentally broken (OOM, incompatible architecture), log as crash and move to the next hypothesis. A single crashed experiment does not warrant PHASE FAILED.
+- Only signal PHASE FAILED if the codebase itself is broken such that no further experiments can proceed this explore phase.
 
-### 8. Log to Logbook
+### 8. Log to Store
 
 Every experiment gets logged, regardless of outcome:
 
 ```bash
-logbook emit --context "$SESSION" --type experiment \
+store emit --context "$SESSION" --type experiment \
     --commit_hash "$(git rev-parse --short HEAD)" \
     --change_type "<category>" \
     --status "<keep|discard|crash>" \
@@ -131,19 +135,30 @@ The first experiment is always a baseline: run the existing code/config without 
 - Memory/resource usage
 - That the setup works at all
 
-Log it with `logbook emit --context "$SESSION" --type baseline --status keep ...`.
+Log it with `store emit --context "$SESSION" --type baseline --status keep ...`.
 
-## When to Trigger the Outer Loop
+## Signals
 
-After completing N inner loop cycles (defined during onboarding), or after detecting a plateau (M consecutive discards), pause the inner loop and switch to the outer loop protocol.
+The cursor manages the explore/distill rhythm. Your job is to signal when you are ready to transition.
 
-Do NOT ask the user "should I continue?" — the loop is autonomous. The only pause is for distillation, and then the inner loop resumes.
+**PHASE COMPLETE** — Include this in your response when you have run enough experiments and are ready to distill. The cursor advances from `mode=explore` to `mode=distill`. Heuristics for when to signal:
+- You have reached the per-cycle experiment target (from onboarding)
+- You detect a plateau (M consecutive discards — distillation will help redirect)
+- You have enough evidence for a meaningful distillation (patterns are visible)
+
+**No signal** — End your response without any signal keyword. The cursor stays at the same position. The next iteration continues exploration at the same cycle and mode. This is the normal case within an explore phase: one experiment per iteration, no signal until you are ready to distill.
+
+**PHASE FAILED** — Use sparingly. Include this only if the current explore attempt is unrecoverable (e.g., codebase is broken beyond repair, persistent OOM). This advances the `retry` dimension (e.g., retry=0→1). If retries remain, you get another attempt at the same (cycle, mode) position. If retries are exhausted, overflow advances `mode` to distill — so the agent can at least record what happened. For individual experiment failures that you can work around, just log them and move to the next hypothesis — do not signal PHASE FAILED.
+
+Do NOT ask the user "should I continue?" — the loop is autonomous. The only pause is for distillation, and then exploration resumes.
 
 ---
 
 ## Bulk Mode (Optional)
 
 When the protocol specifies bulk mode (K > 1), the inner loop runs K experiments in parallel using git worktrees instead of one at a time. **If K=1 (sequential), ignore this section entirely — use the sequential cycle above.**
+
+Bulk mode operates within a single cursor position. The cursor does not model individual parallel experiments — whether you run 1 sequential experiment or K parallel experiments per iteration, the cursor stays at `mode=explore` until you signal PHASE COMPLETE.
 
 **Baseline first**: Run the baseline as a single sequential experiment before starting bulk mode. The baseline establishes the reference metric for keep/discard decisions across all batches.
 
@@ -158,9 +173,9 @@ When the protocol specifies bulk mode (K > 1), the inner loop runs K experiments
 6.  RUN        K experiments in parallel (sbatch, background processes, etc.)
 7.  WAIT       for all K to complete
 8.  EVALUATE   each independently (extract metrics, decide keep/discard)
-9.  LOG        all K to logbook with shared batch_id
+9.  LOG        all K to store with shared batch_id
 10. RECONCILE  merge best keep into session branch, clean up worktrees
-11. CHECK      total experiments += K; if >= N → trigger outer loop, else next batch
+11. CHECK      total experiments += K; if ready to distill → signal PHASE COMPLETE, else next batch
 ```
 
 ### Step Details (batch-specific)
@@ -189,14 +204,14 @@ If K > number of open categories, multiple per category are fine but should vary
 Create K worktrees, each branching from the current session branch HEAD:
 
 ```bash
-BATCH_ID=$(logbook sql "SELECT COALESCE(MAX(batch_id), 0) + 1
+BATCH_ID=$(store sql "SELECT COALESCE(MAX(batch_id), 0) + 1
     FROM entries WHERE context='$SESSION'" | awk 'NR==3{print $1}')
 SESSION_BRANCH="research/$SESSION"
 CODEBASE="$CAMPAIGN/sessions/$SESSION/codebase"
 K=<batch size from protocol.md>
 
 for i in $(seq 1 $K); do
-  git worktree add "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}" \
+  git -C "$CODEBASE" worktree add "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}" \
     -b "exp/${SESSION}/${BATCH_ID}-${i}" "$SESSION_BRANCH"
 done
 ```
@@ -234,9 +249,9 @@ wait
 
 For Slurm: poll `squeue` until all batch jobs complete. For background processes: `wait` blocks until all finish.
 
-#### 9–10. Evaluate, Determine Winner, Then Log All K
+#### 8–10. Evaluate, Determine Winner, Then Log All K
 
-**Important**: The logbook is append-only — there is no UPDATE. Evaluate all K experiments and determine the batch winner BEFORE logging any of them. Then emit all K entries with their final status in one pass.
+**Important**: The store is append-only — there is no UPDATE. Evaluate all K experiments and determine the batch winner BEFORE logging any of them. Then emit all K entries with their final status in one pass.
 
 After all K experiments complete, evaluate each independently, then:
 
@@ -248,7 +263,7 @@ After all K experiments complete, evaluate each independently, then:
 
 ```bash
 # Log each experiment with its final status
-logbook emit --context "$SESSION" --type experiment \
+store emit --context "$SESSION" --type experiment \
     --commit_hash "<hash>" --change_type "<type>" \
     --status "<keep|keep-deferred|discard|crash>" \
     --metrics '<json>' --batch_id "$BATCH_ID" \
@@ -269,7 +284,7 @@ git merge --ff-only "$WINNER_BRANCH" \
 **After merging**, clean up all worktrees:
 ```bash
 for i in $(seq 1 $K); do
-  git worktree remove "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}"
+  git worktree remove --force "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}"
   git branch -D "exp/${SESSION}/${BATCH_ID}-${i}"
 done
 ```
@@ -278,7 +293,7 @@ done
 
 ### Plateau Detection in Bulk Mode
 
-In sequential mode, M consecutive discards triggers the outer loop. In bulk mode, count at the batch level:
+In sequential mode, M consecutive discards is a signal to stop exploring (signal PHASE COMPLETE). In bulk mode, count at the batch level:
 - A batch with 0 keeps counts as 1 "batch discard"
-- M consecutive batch discards (not individual discards) triggers the outer loop
+- M consecutive batch discards (not individual discards) signals readiness to distill — include PHASE COMPLETE
 - A batch with at least 1 keep resets the consecutive discard counter
