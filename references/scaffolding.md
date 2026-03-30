@@ -326,7 +326,7 @@ The prompt file contains both the explore and distill protocols so the agent fol
 ## Session
 - Campaign: <absolute path to campaign>
 - Store: <absolute path to store>
-- Context: research/<session-name>
+- Context: <session-name>
 - Codebase: <absolute path to session codebase>
 - Insights: <absolute path to insights.md>
 
@@ -433,9 +433,7 @@ Compress what was learned. One iteration = one complete distillation.
    next cycle's explore phase.
 
 **Do not signal PHASE FAILED during distillation.** If something goes wrong (empty store,
-query error), fix it and complete the distillation within this iteration. If retries
-exhaust at mode=distill, overflow skips to the next cycle's explore — losing the
-compression step entirely.
+query error), fix it and complete the distillation within this iteration.
 
 **Early termination**: If all research goals are met before the cursor exhausts all cycles,
 output `<promise>DONE</promise>` to exit the loop immediately.
@@ -451,7 +449,7 @@ After generating the prompt file, launch the research loop by invoking the lisa-
 /lisa-wiggum:lisa-loop \
     --prompt-file "$CAMPAIGN/sessions/$SESSION/prompt.md" \
     --store "$CAMPAIGN/store" \
-    --context "research/$SESSION" \
+    --context "$SESSION" \
     --dim cycle 1 2 3 4 5 \
     --dim mode explore distill \
     --dim retry 0 1 2 \

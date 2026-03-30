@@ -2,7 +2,7 @@
 
 This protocol applies when the system message shows `mode=explore`. The cursor position (e.g., `Cursor: cycle=2, mode=explore, retry=0`) tells you which round of exploration you are in. `retry=0` is the first attempt; `retry=1` means you are on a retry after a prior failed phase.
 
-The inner loop's job is to **maximize information gathered per unit compute**. Each cycle is one experiment.
+The inner loop's job is to **maximize information gathered per unit compute**. Each iteration of the cycle below is one experiment.
 
 ## The Cycle
 
