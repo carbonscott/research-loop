@@ -211,7 +211,7 @@ CODEBASE="$CAMPAIGN/sessions/$SESSION/codebase"
 K=<batch size from protocol.md>
 
 for i in $(seq 1 $K); do
-  git worktree add "$CODEBASE/worktrees/exp-${BATCH_ID}-${i}" \
+  git -C "$CODEBASE" worktree add "worktrees/exp-${BATCH_ID}-${i}" \
     -b "exp/${SESSION}/${BATCH_ID}-${i}" "$SESSION_BRANCH"
 done
 ```
