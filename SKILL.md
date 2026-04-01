@@ -1,115 +1,111 @@
 ---
-description: "Guide for setting up autonomous research loops with expansion (inner) and compression (outer) cycles. Uses lab-notebook for persistent experiment logging and cross-session knowledge. Use when someone wants to run systematic experiments — ML training, parameter sweeps, data analysis, configuration exploration — with an agent that learns from its own results."
+name: research-loop
+description: >-
+  Guide for autonomous research loops with expansion (inner) and compression
+  (outer) cycles. Uses lab-notebook for persistent experiment logging and
+  cross-session knowledge. Use when someone wants to run systematic
+  experiments — ML training, parameter sweeps, data analysis — with an
+  agent that learns from its own results.
 argument-hint: <research goal or domain context>
 user-invocable: true
 ---
 
-# Research Loop: Autonomous Experimentation with Campaign-Based Infrastructure
+# Research Loop: Autonomous Experimentation
 
-You are a research methodology guide. Your job is to help the user set up and run an autonomous research loop — a structured process where an agent iteratively runs experiments, evaluates results, and distills accumulated evidence into actionable knowledge.
+You are a research methodology guide. Your job is to help the user set up
+and run an autonomous research loop — a structured process where an agent
+iteratively runs experiments, evaluates results, and distills accumulated
+evidence into actionable knowledge.
 
 ## Core Principle
 
 Research is expansion followed by compression:
 
-- **Inner loop (expansion)**: Maximize *information gathered per unit compute*. Run many experiments to collect evidence about what works and what doesn't. The inner loop runs sequentially by default, but supports optional **bulk mode** via git worktrees — running K experiments in parallel when compute is available.
-- **Outer loop (compression)**: Maximize *knowledge extracted per unit information*. Periodically distill accumulated results into bounded, actionable insights that guide the next round.
+- **Inner loop (expansion)**: Maximize *information gathered per unit
+  compute*. Run many experiments to collect evidence.
+- **Outer loop (compression)**: Maximize *knowledge extracted per unit
+  information*. Periodically distill results into bounded, actionable
+  insights.
 
-The inner loop generates data. The outer loop generates understanding. Both are required — without the inner loop you have no evidence; without the outer loop you have evidence that grows unbounded and eventually overwhelms the agent's ability to reason.
+The inner loop generates data. The outer loop generates understanding.
+Both are required.
 
-## Campaign Model
+## Protocol Modules
 
-A research campaign is organized as:
+This skill composes the following shared protocols:
 
-- **Campaign**: The top-level infrastructure — a unified store and one or more sessions.
-- **Store** (single lab-notebook instance): All experiment results and narrative insights across all sessions. Structured entry types (`experiment`, `baseline`, `distillation`) hold metrics, status, and change_type. Narrative entry types (`observation`, `decision`, `dead-end`, `milestone`) hold cross-session knowledge. Queried via `store sql` or `store search`.
-- **Session**: One series of exploration — sequential (branches) or bulk (worktrees). Each session has its own `protocol.md` (what to explore), `insights.md` (bounded working memory), and `prompt.md` (generated prompt for the loop engine). The codebase lives inside the session as a git worktree.
+- **Base iteration**: [recall-execute-log.md](../loop-protocols/recall-execute-log.md) — the RECALL -> EXECUTE -> LOG cycle underlying each iteration
+- **Expand/compress**: [expand-compress.md](../loop-protocols/expand-compress.md) — the explore/distill rhythm, experiment cycle, keep/discard logic, distillation protocol, bulk mode
+- **Setup questions**: [onboarding-questions.md](../loop-protocols/onboarding-questions.md) — Q1-Q8 diagnostic framework for defining the research loop
+- **Working memory**: [insights-template.md](../loop-protocols/insights-template.md) — bounded ~30-line insights.md template
+- **Infrastructure**: [campaign-scaffolding.md](../loop-protocols/campaign-scaffolding.md) — campaign directory, store init, session setup, prompt generation, ralph-wiggum launch
 
-The `context` field in every store entry scopes data to a session. Cross-session queries are just SQL without the context filter.
-
-## Cursor-Driven Execution
-
-The explore/distill rhythm is enforced mechanically by lisa-wiggum's cursor model. The nested loop flattens into cursor dimensions:
-
-```
---dim cycle 1 2 3 4 5 --dim mode explore distill --dim retry 0 1 2
-```
-
-The cursor walks: `cycle=1, mode=explore, retry=0` → `cycle=1, mode=distill, retry=0` → `cycle=2, mode=explore, retry=0` → ... → `cycle=5, mode=distill, retry=0` → DONE. The `retry` dimension only advances on PHASE FAILED (crash recovery); normal progression moves through cycle/mode.
-
-**What the cursor guarantees:**
-- Distillation **cannot be skipped**. The agent must complete `mode=distill` before the next cycle begins.
-- Cycles progress monotonically. No drifting back.
-- The stop hook blocks exit, advances the cursor based on signals, and re-injects the prompt.
-
-**What the agent still owns:**
-- How many experiments to run within each explore phase (creative, insight-informed)
-- What to hypothesize (driven by insights.md from last distillation)
-- What to write in insights.md during distillation (cognitive compression)
-- Keep/discard decisions based on metrics
-
-**Signals:**
-- `PHASE COMPLETE` at `mode=explore` → advances mode (explore→distill)
-- `PHASE COMPLETE` at `mode=distill` → advances to next cycle's explore phase
-- `PHASE FAILED` at `mode=explore` → advances retry; if retries exhausted, overflows to distill
-- No signal → cursor stays
+Read these files for detailed protocol guidance.
 
 ## Process
 
-Follow these phases in order. Do not skip onboarding — the loops must be defined before they can be run.
+Follow these phases in order. Do not skip onboarding — the loops must be
+defined before they can be run.
 
 ### Phase 1: Define Your Experiment
 
-Before setting anything up, understand what the user's research looks like. Ask the diagnostic questions from [references/onboarding-questions.md](references/onboarding-questions.md). The answers determine everything: what gets modified, what gets run, what "better" means, how many cycles to run, and the retry budget.
+Before setting anything up, understand what the user's research looks like.
+Ask the diagnostic questions from
+[onboarding-questions.md](../loop-protocols/onboarding-questions.md). The
+answers determine everything: what gets modified, what gets run, what
+"better" means, how many cycles, and the retry budget.
 
-Do not assume ML training. The user might be optimizing detector parameters, exploring configuration spaces, tuning data processing pipelines, or something else entirely.
+Do not assume ML training. The user might be optimizing detector parameters,
+exploring configuration spaces, tuning data processing pipelines, or
+something else entirely.
 
-After the user answers, summarize back their specific loop definitions and cursor configuration. Get confirmation before proceeding.
+After the user answers, summarize back their specific loop definitions.
+Get confirmation before proceeding.
 
 ### Phase 2: Set Up Campaign Infrastructure
 
-Scaffold the campaign using the implementation guide in [references/scaffolding.md](references/scaffolding.md). This includes:
+Scaffold the campaign using
+[campaign-scaffolding.md](../loop-protocols/campaign-scaffolding.md):
 
-- Campaign directory with unified store (single lab-notebook instance for both structured and narrative entries)
+- Campaign directory with unified store (single lab-notebook instance)
 - Campaign `.env` with `store()` shell function wrapper
-- Session directory with `protocol.md`, `insights.md`, and a codebase worktree
-- Cross-session bootstrap from prior store entries (if this isn't the first session)
+- Session directory with `protocol.md`, `insights.md`, and a codebase
+  worktree
+- Cross-session bootstrap from prior store entries (if not first session)
 - Generated `prompt.md` containing both explore and distill protocols
-- Lisa-wiggum launch with cursor dimensions from onboarding
 
-### Phase 3: Run the Inner Loop (mode=explore)
+### Phase 3: Launch the Loop
 
-When the cursor shows `mode=explore`, execute the experiment cycle following [references/inner-loop-protocol.md](references/inner-loop-protocol.md):
-
-```
-hypothesize → modify → commit → run → evaluate → keep/discard → log to store → repeat
-```
-
-The agent runs experiments within the explore phase, one per iteration. Each experiment is logged to the campaign store with full metadata. When the agent has gathered enough evidence (target experiment count reached, or plateau detected), it signals PHASE COMPLETE and the cursor advances to `mode=distill`.
-
-### Phase 4: Run the Outer Loop (mode=distill)
-
-When the cursor shows `mode=distill`, compress what was learned following [references/outer-loop-protocol.md](references/outer-loop-protocol.md):
+Generate the prompt file and launch via ralph-wiggum:
 
 ```
-read store → extract patterns → update insights.md → record to store → signal PHASE COMPLETE
+/ralph-loop:ralph-loop <prompt content> \
+    --max-iterations <N * 30> \
+    --completion-promise 'DONE'
 ```
 
-The outer loop compresses what was learned into a bounded document (`insights.md`, never exceeding ~30 lines). This document is read before each inner loop hypothesis, giving the agent accumulated knowledge without unbounded context growth.
-
-The outer loop also writes narrative entries to the store — insights snapshots, dead-ends, decisions, and milestones that future sessions can query. This is how knowledge persists across sessions.
-
-**Key insight**: Positive knowledge lives in the code/config state (kept changes survive in the working tree). Negative knowledge — what was tried and failed, and why — needs explicit compression via the outer loop and persistence via narrative store entries. Without it, the agent will repeat mistakes.
+The agent is now inside the loop. Each iteration:
+1. Recalls prior work from the notebook
+2. Runs experiments (explore) or compresses findings (distill)
+3. Logs results to the store
+4. Continues until all cycles complete
 
 ## Anti-Patterns
 
-- **Skipping the outer loop**: Now mechanically prevented by the cursor — distillation is required before the next explore phase begins. But the agent can still produce *shallow* distillation. Good distillation compresses patterns, not just re-lists experiments.
-- **Unbounded logging**: Feeding the entire experiment history into the agent's context doesn't scale. Compress into insights, not raw data.
-- **Single-axis exploration**: If every experiment tweaks the same knob (e.g., only learning rate), the agent isn't exploring — it's grid-searching. The outer loop should detect this and redirect.
-- **Never trying radical changes**: Small incremental tweaks converge to local optima. After a plateau, the outer loop should recommend a larger structural change.
-- **Optimizing the metric at the expense of everything else**: Metrics are proxies. Keep soft constraints (simplicity, memory, stability) in view.
-- **Running parallel batches without diversifying**: If all K experiments in a batch explore the same category, you're grid-searching in parallel instead of exploring. Spread hypotheses across open categories.
-- **Ignoring cross-session context**: Starting a new session without querying the campaign store for prior dead-ends and decisions leads to repeating old mistakes. Always bootstrap from the store.
+- **Skipping distillation**: The prompt protocol requires distillation
+  after each explore phase. The agent must self-enforce this rhythm.
+  Good distillation compresses patterns, not just re-lists experiments.
+- **Unbounded logging**: Feeding entire experiment history into context
+  doesn't scale. Compress into insights, not raw data.
+- **Single-axis exploration**: If every experiment tweaks the same knob,
+  the agent isn't exploring — it's grid-searching. Distillation should
+  detect this and redirect.
+- **Never trying radical changes**: Small tweaks converge to local optima.
+  After a plateau, distillation should recommend larger structural changes.
+- **Running parallel batches without diversifying**: All K experiments in
+  a batch should explore different categories, not the same one.
+- **Ignoring cross-session context**: Starting a new session without
+  querying the store for prior dead-ends leads to repeating old mistakes.
 
 ## Now Apply This
 
