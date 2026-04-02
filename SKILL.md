@@ -67,11 +67,10 @@ Get confirmation before proceeding.
 Scaffold the campaign using
 [campaign-scaffolding.md](../loop-protocols/campaign-scaffolding.md):
 
-- Campaign directory with unified store (single lab-notebook instance)
-- Campaign `.env` with `store()` shell function wrapper
+- Project directory with notebook and sessions
 - Session directory with `protocol.md`, `insights.md`, and a codebase
   worktree
-- Cross-session bootstrap from prior store entries (if not first session)
+- Cross-session bootstrap from prior notebook entries (if not first session)
 - Generated `prompt.md` containing both explore and distill protocols
 
 ### Phase 3: Launch the Loop
@@ -87,7 +86,7 @@ Generate the prompt file and launch via ralph-wiggum:
 The agent is now inside the loop. Each iteration:
 1. Recalls prior work from the notebook
 2. Runs experiments (explore) or compresses findings (distill)
-3. Logs results to the store
+3. Logs results to the notebook
 4. Continues until all cycles complete
 
 ## Anti-Patterns
@@ -105,7 +104,7 @@ The agent is now inside the loop. Each iteration:
 - **Running parallel batches without diversifying**: All K experiments in
   a batch should explore different categories, not the same one.
 - **Ignoring cross-session context**: Starting a new session without
-  querying the store for prior dead-ends leads to repeating old mistakes.
+  querying the notebook for prior dead-ends leads to repeating old mistakes.
 
 ## Now Apply This
 
